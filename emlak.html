@@ -428,7 +428,7 @@
   <div class="sheet">
     <div class="grabber"></div>
     <h2 id="propFormTitle">Yeni Daire</h2>
-    <div class="field"><label>Site / Bina adı</label><input id="p_site" placeholder="Örn: Büyükyalı Sitesi"></div>
+    <div class="field"><label>Site / Bina adı</label><input id="p_site" placeholder="Proje adı"></div>
     <div class="row2">
       <div class="field"><label>İlçe / Şehir</label><input id="p_loc" placeholder="Zeytinburnu, İstanbul"></div>
       <div class="field"><label>Blok</label><input id="p_block" placeholder="A Blok"></div>
@@ -436,7 +436,7 @@
     <div class="row2">
       <div class="field"><label>Oda sayısı</label>
         <select id="p_rooms">
-          <option>1+1</option><option>2+1</option><option selected>3+1</option><option>4+1</option><option>5+1</option><option>Diğer</option>
+          <option>1+1</option><option>1,5+1</option><option>2+1</option><option>2,5+1</option><option selected>3+1</option><option>3,5+1</option><option>4+1</option><option>4,5+1</option><option>5+1</option><option>5,5+1</option><option>6+1</option><option>6,5+1</option><option>7+1</option><option>7,5+1</option><option>8+1</option><option>8,5+1</option><option>9+1</option><option>9,5+1</option><option>10+1</option><option>Diğer</option>
         </select>
       </div>
       <div class="field"><label>Kat</label><select id="p_floor"></select></div>
@@ -482,15 +482,15 @@
   <div class="sheet">
     <div class="grabber"></div>
     <h2 id="clientFormTitle">Yeni Müşteri</h2>
-    <div class="field"><label>Ad Soyad</label><input id="c_name" placeholder="Ahmet Kaya"></div>
-    <div class="field"><label>Telefon</label><input id="c_phone" placeholder="0532 123 45 67"></div>
+    <div class="field"><label>Ad Soyad</label><input id="c_name" placeholder="Müşteri adı soyadı"></div>
+    <div class="field"><label>Telefon</label><input id="c_phone" placeholder="Tel no"></div>
     <div class="row2">
       <div class="field"><label>Aranan site (opsiyonel)</label><input id="c_site" placeholder="Boş = fark etmez"></div>
       <div class="field"><label>Aranan blok (opsiyonel)</label><input id="c_block" placeholder="Boş = fark etmez"></div>
     </div>
     <div class="field"><label>Oda sayısı</label>
       <select id="c_rooms">
-        <option>Fark etmez</option><option>1+1</option><option>2+1</option><option selected>3+1</option><option>4+1</option><option>5+1</option>
+        <option>Fark etmez</option><option>1+1</option><option>1,5+1</option><option>2+1</option><option>2,5+1</option><option selected>3+1</option><option>3,5+1</option><option>4+1</option><option>4,5+1</option><option>5+1</option><option>5,5+1</option><option>6+1</option><option>6,5+1</option><option>7+1</option><option>7,5+1</option><option>8+1</option><option>8,5+1</option><option>9+1</option><option>9,5+1</option><option>10+1</option>
       </select>
     </div>
     <div class="field">
@@ -929,27 +929,46 @@
     if(!p) return;
     const media = mediaOf(p);
     if(!media.length){ showToast('Bu dairede fotoğraf/video yok.'); return; }
-    showToast(`${media.length} dosya indiriliyor, bekle...`, 4000);
-    let ok = 0;
+    showToast(`${media.length} dosya hazırlanıyor, bekle...`, 4000);
+    const files = [];
     for(let i=0;i<media.length;i++){
       const m = media[i];
       try{
         const res = await fetch(srcOf(m));
         const blob = await res.blob();
         const ext = m.type==='video' ? 'mp4' : 'jpg';
-        const url = URL.createObjectURL(blob);
+        files.push(new File([blob], `${(p.site||'daire').replace(/\s+/g,'_')}-${i+1}.${ext}`, {type: blob.type || (m.type==='video'?'video/mp4':'image/jpeg')}));
+      }catch(e){}
+    }
+    if(!files.length){ showToast('İndirme başarısız oldu, tekrar dene.'); return; }
+
+    // iOS/Safari "download" linkini yok sayar; galeriye kaydetmenin tek güvenilir yolu paylaşım penceresi
+    if(navigator.canShare && navigator.canShare({files})){
+      try{
+        await navigator.share({files, title:p.site});
+      }catch(err){
+        if(err.name !== 'AbortError') showToast('İndirme başarısız oldu, tekrar dene.');
+      }
+      return;
+    }
+
+    // Masaüstü tarayıcılar: doğrudan indir
+    let ok = 0;
+    for(let i=0;i<files.length;i++){
+      try{
+        const url = URL.createObjectURL(files[i]);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${(p.site||'daire').replace(/\s+/g,'_')}-${i+1}.${ext}`;
+        a.download = files[i].name;
         document.body.appendChild(a);
         a.click();
         a.remove();
         setTimeout(()=> URL.revokeObjectURL(url), 5000);
         ok++;
-        if(i < media.length-1) await new Promise(r=>setTimeout(r, 350));
+        if(i < files.length-1) await new Promise(r=>setTimeout(r, 350));
       }catch(e){}
     }
-    if(ok) showToast(`${ok} dosya indirildi. (Telefonlarda "İndirilenler" klasörüne kaydedilir)`, 5000);
+    if(ok) showToast(`${ok} dosya indirildi.`, 4000);
     else showToast('İndirme başarısız oldu, tekrar dene.');
   }
 
@@ -1156,7 +1175,7 @@
     const ownerC = isClientOwner(c);
     editingClientHiddenPhone = (c && !ownerC) ? c.phone : null;
     $('c_phone').value = (c && ownerC) ? c.phone : '';
-    $('c_phone').placeholder = (c && !ownerC) ? '🔒 Gizli — sadece ekleyen kişi görebilir' : '0532 123 45 67';
+    $('c_phone').placeholder = (c && !ownerC) ? '🔒 Gizli — sadece ekleyen kişi görebilir' : 'Tel no';
     $('c_site').value = c? c.site:'';
     $('c_block').value = c? c.block:'';
     $('c_rooms').value = c? c.rooms:'3+1';
