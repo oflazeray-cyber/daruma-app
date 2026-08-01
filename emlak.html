@@ -234,6 +234,7 @@
   .match-item .mi-info .t{font-size:13.5px; font-weight:600;}
   .match-item .mi-info .p{font-size:12px; color:var(--muted);}
   .match-item .mi-price{font-family:var(--font-mono); font-size:12.5px; color:var(--brass-dark); font-weight:600; white-space:nowrap;}
+  .match-item .mi-stars{font-size:11px; letter-spacing:1px;}
   .send-btn{
     margin-top:8px; width:100%; padding:9px; border-radius:8px; border:none;
     background:var(--deep); color:#fff; font-family:var(--font-body); font-weight:600; font-size:12.5px;
@@ -485,7 +486,26 @@
         <div class="chip" data-furnished="Eşyasız">Eşyasız</div>
       </div>
     </div>
-    <div class="field"><label>Cephe / Manzara / Özellikler (virgülle ayır)</label><input id="p_tags" placeholder="deniz manzarası, yan cephe, otopark"></div>
+    <div class="row2">
+      <div class="field">
+        <label>Mutfak Tipi</label>
+        <div class="chip-wrap" id="p_kitchen_chips">
+          <div class="chip" data-kitchen="Kapalı Mutfak">Kapalı Mutfak</div>
+          <div class="chip" data-kitchen="Açık Mutfak">Açık Mutfak</div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Balkon</label>
+        <div class="chip-wrap" id="p_balcony_chips">
+          <div class="chip" data-balcony="Var">Var</div>
+          <div class="chip" data-balcony="Yok">Yok</div>
+        </div>
+      </div>
+    </div>
+    <div class="field">
+      <label>Cephe / Manzara / Özellikler</label>
+      <div class="chip-wrap" id="p_features_chips"></div>
+    </div>
     <div class="field"><label>Açıklama (opsiyonel)</label><textarea id="p_desc" placeholder="Ek notlar..."></textarea></div>
     <div class="field">
       <label>Fotoğraf &amp; Video (en fazla 60 adet)</label>
@@ -541,6 +561,16 @@
       <select id="c_kdv"><option>Farketmez</option><option>KDV'li</option><option>KDV'siz</option></select>
     </div>
     <div class="row2">
+      <div class="field">
+        <label>Mutfak Tercihi</label>
+        <select id="c_kitchen"><option>Farketmez</option><option>Kapalı Mutfak</option><option>Açık Mutfak</option></select>
+      </div>
+      <div class="field">
+        <label>Balkon Tercihi</label>
+        <select id="c_balcony"><option>Farketmez</option><option>Var</option><option>Yok</option></select>
+      </div>
+    </div>
+    <div class="row2">
       <div class="field"><label>Min bütçe</label><input id="c_min" type="number" placeholder="0"></div>
       <div class="field"><label>Max bütçe</label><input id="c_max" type="number" placeholder="1000000"></div>
     </div>
@@ -548,9 +578,9 @@
       <select id="c_currency"><option>USD</option><option>TRY</option><option>EUR</option></select>
     </div>
     <div class="field">
-      <label>İstenen özellikler (virgülle ayır, opsiyonel)</label>
-      <input id="c_tags" placeholder="deniz manzarası, otopark">
-      <div class="chip-hint">Herhangi bir özellik şart değilse burayı boş bırak — "farketmez" gibi yazmayın, bu bir daire özelliği gibi aranır ve eşleşmeyi engelleyebilir.</div>
+      <label>İstenen Özellikler (opsiyonel)</label>
+      <div class="chip-wrap" id="c_features_chips"></div>
+      <div class="chip-hint">Hiçbiri seçilmezse özellik şartı aranmaz — sadece eşleşen daireler listede daha üstte çıkar.</div>
     </div>
     <div class="field">
       <label class="check-row">
@@ -594,9 +624,13 @@
   let pendingMedia = []; // {type:'image'|'video', data:base64} for form in progress
   let selectedStatuses = [];
   let selectedFurnished = [];
+  let selectedPropFeatures = [];
+  let selectedKitchen = '';
+  let selectedBalcony = '';
   let openClientId = null;
   let selectedClientFloors = [];
   let selectedClientStatuses = [];
+  let selectedClientFeatures = [];
   let editingClientHiddenPhone = null;
   function isClientOwner(c){ return !c || !c.createdBy || c.createdBy === CURRENT_USER; }
 
@@ -655,6 +689,7 @@
   }
 
   const FLOOR_OPTIONS = ['Bahçe Katı', ...Array.from({length:20},(_,i)=>String(i+1)), '20+'];
+  const FEATURE_OPTIONS = ['Deniz manzaralı','Yan cephe','Güney cephe','Doğu cephe','Batı cephe','Kuzey cephe','Peyzaj manzaralı'];
 
   const $ = (id) => document.getElementById(id);
   $('p_floor').innerHTML = FLOOR_OPTIONS.map(f=>`<option value="${f}">${f}</option>`).join('');
@@ -801,23 +836,44 @@
 
   // ---------- MATCHING ----------
   function norm(s){ return (s||'').toString().trim().toLocaleLowerCase('tr'); }
-  function tagList(s){ return (s||'').split(',').map(x=>norm(x)).filter(Boolean); }
+  function tagList(s){
+    if(Array.isArray(s)) return s.map(x=>norm(x)).filter(Boolean);
+    return (s||'').split(',').map(x=>norm(x)).filter(Boolean);
+  }
+  function rawTagList(s){
+    if(Array.isArray(s)) return s.filter(Boolean);
+    return (s||'').split(',').map(x=>x.trim()).filter(Boolean);
+  }
 
   function matchScore(client, prop){
+    // ================= ANA KRİTERLER (kesin şart — belirtilmişse uymazsa eşleşme hiç çıkmaz, boş/Farketmez ise engellemez) =================
     // oda sayısı
     if(client.rooms && client.rooms !== 'Fark etmez' && client.rooms !== prop.rooms) return null;
-    // site
+    // kat (kesin şart, birden fazla seçim olabilir)
+    if(client.floors && client.floors.length && !client.floors.includes(prop.floor)) return null;
+    // vatandaşlık: sadece müşteri özellikle istiyorsa kontrol edilir, aksi halde önemsiz
+    if(client.citizenshipRequired && !prop.citizenshipEligible) return null;
+    // site (kesin şart)
     if(client.site && !norm(prop.site).includes(norm(client.site))) return null;
-    // blok (virgülle birden fazla blok yazılabilir; herhangi biri eşleşirse yeterli)
+    // blok (kesin şart; virgülle birden fazla blok yazılabilir, herhangi biri eşleşirse yeterli)
     if(client.block){
       const wantedBlocks = tagList(client.block);
       const propBlock = norm(prop.block);
       if(wantedBlocks.length && !wantedBlocks.some(b => propBlock.includes(b))) return null;
     }
-    // kat (birden fazla seçim olabilir)
-    if(client.floors && client.floors.length && !client.floors.includes(prop.floor)) return null;
-    // vatandaşlık: sadece müşteri özellikle istiyorsa kontrol edilir, aksi halde önemsiz
-    if(client.citizenshipRequired && !prop.citizenshipEligible) return null;
+    // eşyalı/eşyasız (kesin şart; Farketmez ise engellemez)
+    if(client.furnishedPref && client.furnishedPref!=='Farketmez'){
+      const propFurnished = furnishedOf(prop);
+      if(propFurnished.length && !propFurnished.includes(client.furnishedPref)) return null;
+    }
+    // mutfak tipi (kesin şart; Farketmez ise engellemez)
+    if(client.kitchenPref && client.kitchenPref!=='Farketmez'){
+      if(prop.kitchenType && prop.kitchenType!==client.kitchenPref) return null;
+    }
+    // balkon (kesin şart; Farketmez ise engellemez)
+    if(client.balconyPref && client.balconyPref!=='Farketmez'){
+      if(prop.balcony && prop.balcony!==client.balconyPref) return null;
+    }
     // durum (satılık/kiralık): müşterinin ilgilendiği durumla dairenin durumu kesişmeli
     const clientStatuses = statusOf(client).length ? statusOf(client) : ['Satılık','Kiralık'];
     const propStatuses = statusOf(prop);
@@ -828,16 +884,6 @@
     const max = client.max ? Number(client.max) : Infinity;
     const fitsBudget = overlapStatuses.some(s=>{
       const type = s==='Satılık' ? 'sale' : 'rent';
-      // kiralıkta eşya tercihi: müşteri özellikle istiyorsa (Farketmez değilse) dairenin durumu uymalı
-      if(type==='rent' && client.furnishedPref && client.furnishedPref!=='Farketmez'){
-        const propFurnished = furnishedOf(prop);
-        if(propFurnished.length && !propFurnished.includes(client.furnishedPref)) return false;
-      }
-      // KDV tercihi: müşteri özellikle istiyorsa (Farketmez değilse) dairenin KDV durumu uymalı
-      if(client.kdvPref && client.kdvPref!=='Farketmez'){
-        const wantsKdv = client.kdvPref === "KDV'li";
-        if(kdvOf(prop, type) !== wantsKdv) return false;
-      }
       const v = effectivePriceOf(prop, type);
       if(v === null) return false;
       const propCurrency = currencyOf(prop, type);
@@ -850,23 +896,38 @@
       return compareValue >= min && compareValue <= max;
     });
     if(!fitsBudget) return null;
-    // özellikler: en az biri örtüşmeli (istenen özellik varsa)
+
+    // ================= SKOR (yıldız) — elemeyen kriterler, ne kadar örtüşürse yıldız o kadar yüksek =================
+    let extra = 0, satisfiedExtra = 0;
+    // KDV tercihi
+    if(client.kdvPref && client.kdvPref!=='Farketmez'){
+      const wantsKdv = client.kdvPref === "KDV'li";
+      extra++;
+      if(overlapStatuses.some(s => kdvOf(prop, s==='Satılık'?'sale':'rent') === wantsKdv)) satisfiedExtra++;
+    }
+    // istenen özellikler
     const NOISE_TAGS = ['farketmez',"fark etmez",'yok','hiçbiri','önemli değil'];
     const wanted = tagList(client.tags).filter(t => !NOISE_TAGS.includes(t));
     let overlap = 0;
     if(wanted.length){
       const have = tagList(prop.tags);
-      overlap = wanted.filter(w => have.some(h=>h.includes(w) || w.includes(h))).length;
-      if(overlap === 0) return null;
+      overlap = wanted.filter(w => have.some(h=>h===w || h.includes(w) || w.includes(h))).length;
+      extra += wanted.length; satisfiedExtra += overlap;
     }
-    return { overlap };
+
+    let stars = 3; // sadece ana kriterlerle eşleşti — iyi bir eşleşme
+    if(extra > 0){
+      stars = Math.round(3 + (satisfiedExtra/extra) * 2); // ekstra kriterler ne kadar tam karşılanırsa 5'e o kadar yaklaşır
+      stars = Math.max(1, Math.min(5, stars));
+    }
+    return { overlap, stars };
   }
 
   function matchesForClient(client){
     return properties
       .map(p => ({ prop:p, score: matchScore(client,p) }))
       .filter(x => x.score !== null)
-      .sort((a,b)=> b.score.overlap - a.score.overlap);
+      .sort((a,b)=> (b.score.stars - a.score.stars) || (b.score.overlap - a.score.overlap));
   }
   function matchingClientsForProp(prop){
     return clients.filter(c => matchScore(c, prop) !== null);
@@ -896,7 +957,8 @@
     }
     mainEl.innerHTML = list.map(p=>{
       const matched = matchingClientsForProp(p);
-      const tags = tagList(p.tags);
+      const tags = rawTagList(p.tags);
+      const extraTags = [p.kitchenType, (p.balcony==='Var'?'Balkonlu':(p.balcony==='Yok'?'Balkonsuz':null))].filter(Boolean);
       const photos = mediaOf(p);
       return `
       <div class="card" data-id="${p.id}">
@@ -904,7 +966,7 @@
         <h3>${esc(p.site)||'İsimsiz Daire'}</h3>
         <div class="loc">${esc(p.block)? esc(p.block)+' · ':''}${esc(p.loc)||''} · ${esc(p.rooms)} · ${p.floor? (p.floor==='Bahçe Katı'?'Bahçe Katı':p.floor+'. Kat'):''} · ${esc(statusOf(p).join(' / '))}</div>
         ${p.citizenshipEligible? `<div style="margin-bottom:8px;"><span class="citizen-badge">🛂 Vatandaşlığa uygun</span></div>` : ''}
-        ${tags.length? `<div class="tags">${tags.map(t=>`<span>${esc(t)}</span>`).join('')}</div>` : ''}
+        ${(extraTags.length||tags.length)? `<div class="tags">${extraTags.map(t=>`<span>${esc(t)}</span>`).join('')}${tags.map(t=>`<span>${esc(t)}</span>`).join('')}</div>` : ''}
         ${photos.length? `<div class="photo-row">${photos.slice(0,5).map(m=>m.type==='video'?`<video src="${srcOf(m)}" muted></video>`:`<img src="${srcOf(m)}">`).join('')}${photos.length>5?`<div class="more">+${photos.length-5}</div>`:''}</div>` : ''}
         <div class="card-foot">
           <div class="stamp">${priceLabel(p)}</div>
@@ -932,7 +994,7 @@
       const m = matchesForClient(c);
       const floorLabel = (c.floors&&c.floors.length) ? c.floors.map(f=>f==='Bahçe Katı'?f:f+'.Kat').join('/') : null;
       const crit = [c.rooms, (c.site||null), (c.block||null), floorLabel, `${c.min?fmtPrice(c.min):'0'}–${c.max?fmtPrice(c.max):'∞'} ${c.currency}`, (c.citizenshipRequired?'🛂 Vatandaşlık şartı':null)].filter(Boolean);
-      const wanted = tagList(c.tags);
+      const wanted = rawTagList(c.tags);
       const isOpen = openClientId === c.id;
       const ownerC = isClientOwner(c);
       const phoneDisplay = ownerC ? (esc(c.phone)||'—') : '🔒 Gizli';
@@ -950,12 +1012,12 @@
           ${wanted.map(t=>`<span>${esc(t)}</span>`).join('')}
         </div>
         <div class="client-body ${isOpen?'open':''}">
-          ${m.length ? m.map(({prop})=>`
+          ${m.length ? m.map(({prop,score})=>`
             <div class="match-item">
               ${(() => { const m = mediaOf(prop)[0]; if(!m) return `<div class="noimg"></div>`; return m.type==="video" ? `<video src="${srcOf(m)}" muted></video>` : `<img src="${srcOf(m)}">`; })()}
               <div class="mi-info">
                 <div class="t">${esc(prop.site)} ${esc(prop.block)}</div>
-                <div class="p">${esc(prop.loc)} · ${esc(prop.rooms)}</div>
+                <div class="p">${esc(prop.loc)} · ${esc(prop.rooms)} · <span class="mi-stars">${starLabel(score.stars)}</span></div>
               </div>
               <div class="mi-price">${priceLabel(prop)}</div>
             </div>
@@ -992,12 +1054,12 @@
           <div class="match-badge">${m.length} eşleşme</div>
         </div>
         <div class="client-body open">
-          ${m.map(({prop})=>`
+          ${m.map(({prop,score})=>`
             <div class="match-item">
               ${(() => { const m = mediaOf(prop)[0]; if(!m) return `<div class="noimg"></div>`; return m.type==="video" ? `<video src="${srcOf(m)}" muted></video>` : `<img src="${srcOf(m)}">`; })()}
               <div class="mi-info">
                 <div class="t">${esc(prop.site)} ${esc(prop.block)}</div>
-                <div class="p">${esc(prop.loc)} · ${esc(prop.rooms)}</div>
+                <div class="p">${esc(prop.loc)} · ${esc(prop.rooms)} · <span class="mi-stars">${starLabel(score.stars)}</span></div>
               </div>
               <div class="mi-price">${priceLabel(prop)}</div>
             </div>
@@ -1009,6 +1071,10 @@
 
   function esc(s){ return (s===undefined||s===null)?'':String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
   function fmtPrice(v){ v = Number(v)||0; return v.toLocaleString('tr-TR'); }
+  function starLabel(stars){
+    stars = Math.max(1, Math.min(5, stars||3));
+    return '⭐'.repeat(stars) + '☆'.repeat(5-stars);
+  }
 
   // ---------- EVENTS: TABS ----------
   document.querySelectorAll('.bottomnav button').forEach(btn=>{
@@ -1151,7 +1217,7 @@
     const floorTxt = prop.floor ? (prop.floor==='Bahçe Katı' ? 'Bahçe Katı' : prop.floor+'. Kat') : '';
     const text = `Merhaba ${c.name}, aradığınız kritere uygun bir daire çıktı:\n\n`+
       `${prop.site} ${prop.block?'- '+prop.block:''}\n${prop.loc}\n${prop.rooms}${floorTxt? ' · '+floorTxt:''} · ${priceLabel(prop)}\n`+
-      `${tagList(prop.tags).join(', ')}\n\nFotoğrafları ayrıca gönderiyorum.`;
+      `${rawTagList(prop.tags).join(', ')}\n\nFotoğrafları ayrıca gönderiyorum.`;
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
   }
@@ -1184,7 +1250,12 @@
     $('p_kdv_rent').checked = p? !!p.kdvRent : false;
     $('p_currency_sale').value = p? (p.currencySale || (legacyStatuses.includes('Satılık') ? (p.currency||'USD') : 'USD')) : 'USD';
     $('p_currency_rent').value = p? (p.currencyRent || (legacyStatuses.includes('Kiralık') ? (p.currency||'TRY') : 'TRY')) : 'TRY';
-    $('p_tags').value = p? p.tags:'';
+    selectedPropFeatures = p? rawTagList(p.tags) : [];
+    renderPropFeatureChips();
+    selectedKitchen = p? (p.kitchenType || '') : '';
+    renderKitchenChips();
+    selectedBalcony = p? (p.balcony || '') : '';
+    renderBalconyChips();
     $('p_desc').value = p? p.desc:'';
     pendingMedia = p? mediaOf(p).slice() : [];
     $('p_photos').value = '';
@@ -1211,6 +1282,41 @@
     if(selectedFurnished.includes(f)) selectedFurnished = selectedFurnished.filter(x=>x!==f);
     else selectedFurnished.push(f);
     renderStatusChips();
+  });
+  function renderPropFeatureChips(){
+    $('p_features_chips').innerHTML = FEATURE_OPTIONS.map(f=>
+      `<div class="chip ${selectedPropFeatures.includes(f)?'selected':''}" data-pfeature="${f}">${f}</div>`
+    ).join('');
+  }
+  $('p_features_chips').addEventListener('click', (e)=>{
+    const chip = e.target.closest('[data-pfeature]');
+    if(!chip) return;
+    const f = chip.dataset.pfeature;
+    if(selectedPropFeatures.includes(f)) selectedPropFeatures = selectedPropFeatures.filter(x=>x!==f);
+    else selectedPropFeatures.push(f);
+    renderPropFeatureChips();
+  });
+  function renderKitchenChips(){
+    $('p_kitchen_chips').querySelectorAll('[data-kitchen]').forEach(chip=>{
+      chip.classList.toggle('selected', selectedKitchen === chip.dataset.kitchen);
+    });
+  }
+  $('p_kitchen_chips').addEventListener('click', (e)=>{
+    const chip = e.target.closest('[data-kitchen]');
+    if(!chip) return;
+    selectedKitchen = (selectedKitchen === chip.dataset.kitchen) ? '' : chip.dataset.kitchen;
+    renderKitchenChips();
+  });
+  function renderBalconyChips(){
+    $('p_balcony_chips').querySelectorAll('[data-balcony]').forEach(chip=>{
+      chip.classList.toggle('selected', selectedBalcony === chip.dataset.balcony);
+    });
+  }
+  $('p_balcony_chips').addEventListener('click', (e)=>{
+    const chip = e.target.closest('[data-balcony]');
+    if(!chip) return;
+    selectedBalcony = (selectedBalcony === chip.dataset.balcony) ? '' : chip.dataset.balcony;
+    renderBalconyChips();
   });
   $('p_status_chips').addEventListener('click', (e)=>{
     const chip = e.target.closest('[data-status]');
@@ -1331,7 +1437,9 @@
       furnished: selectedStatuses.includes('Kiralık') ? selectedFurnished.slice() : [],
       currencySale: selectedStatuses.includes('Satılık') ? $('p_currency_sale').value : '',
       currencyRent: selectedStatuses.includes('Kiralık') ? $('p_currency_rent').value : '',
-      tags: $('p_tags').value.trim(),
+      tags: selectedPropFeatures.slice(),
+      kitchenType: selectedKitchen,
+      balcony: selectedBalcony,
       desc: $('p_desc').value.trim(),
       media: finalMedia,
       createdAt: editingPropId ? (properties.find(x=>x.id===editingPropId)||{}).createdAt || Date.now() : Date.now()
@@ -1375,7 +1483,8 @@
     $('c_min').value = c? c.min:'';
     $('c_max').value = c? c.max:'';
     $('c_currency').value = c? c.currency:'USD';
-    $('c_tags').value = c? c.tags:'';
+    selectedClientFeatures = c? rawTagList(c.tags) : [];
+    renderClientFeatureChips();
     $('c_notes').value = c? c.notes:'';
     $('c_citizenship').checked = c? !!c.citizenshipRequired : false;
     selectedClientFloors = c? (c.floors||[]).slice() : [];
@@ -1384,6 +1493,8 @@
     renderClientStatusChips();
     $('c_furnished').value = c? (c.furnishedPref || 'Farketmez') : 'Farketmez';
     $('c_kdv').value = c? (c.kdvPref || 'Farketmez') : 'Farketmez';
+    $('c_kitchen').value = c? (c.kitchenPref || 'Farketmez') : 'Farketmez';
+    $('c_balcony').value = c? (c.balconyPref || 'Farketmez') : 'Farketmez';
     $('clientOverlay').classList.add('open');
   }
 
@@ -1416,6 +1527,19 @@
     else selectedClientStatuses.push(s);
     renderClientStatusChips();
   });
+  function renderClientFeatureChips(){
+    $('c_features_chips').innerHTML = FEATURE_OPTIONS.map(f=>
+      `<div class="chip ${selectedClientFeatures.includes(f)?'selected':''}" data-cfeature="${f}">${f}</div>`
+    ).join('');
+  }
+  $('c_features_chips').addEventListener('click', (e)=>{
+    const chip = e.target.closest('[data-cfeature]');
+    if(!chip) return;
+    const f = chip.dataset.cfeature;
+    if(selectedClientFeatures.includes(f)) selectedClientFeatures = selectedClientFeatures.filter(x=>x!==f);
+    else selectedClientFeatures.push(f);
+    renderClientFeatureChips();
+  });
 
   $('clientSave').addEventListener('click', async ()=>{
     const name = $('c_name').value.trim();
@@ -1434,12 +1558,14 @@
       min: $('c_min').value,
       max: $('c_max').value,
       currency: $('c_currency').value,
-      tags: $('c_tags').value.trim(),
+      tags: selectedClientFeatures.slice(),
       notes: $('c_notes').value.trim(),
       citizenshipRequired: $('c_citizenship').checked,
       status: selectedClientStatuses.slice(),
       furnishedPref: $('c_furnished').value,
       kdvPref: $('c_kdv').value,
+      kitchenPref: $('c_kitchen').value,
+      balconyPref: $('c_balcony').value,
       createdBy: (existingC && existingC.createdBy) ? existingC.createdBy : CURRENT_USER,
       createdAt: editingClientId ? (existingC||{}).createdAt || Date.now() : Date.now()
     };
