@@ -455,12 +455,23 @@
         </label>
       </div>
     </div>
-    <div class="row2">
-      <div class="field"><label>Fiyat</label><input id="p_price" type="number" placeholder="1000000"></div>
-      <div class="field"><label>Para birimi</label>
-        <select id="p_currency"><option>USD</option><option>TRY</option><option>EUR</option></select>
+    <div class="row2" id="p_price_row">
+      <div class="field" id="p_price_sale_wrap">
+        <label>Satılık Fiyatı</label>
+        <div style="display:flex; gap:8px;">
+          <input id="p_price_sale" type="number" placeholder="1000000" style="flex:1;">
+          <select id="p_currency_sale" style="width:88px;"><option>USD</option><option>TRY</option><option>EUR</option></select>
+        </div>
+      </div>
+      <div class="field" id="p_price_rent_wrap">
+        <label>Kiralık Fiyatı</label>
+        <div style="display:flex; gap:8px;">
+          <input id="p_price_rent" type="number" placeholder="15000" style="flex:1;">
+          <select id="p_currency_rent" style="width:88px;"><option>TRY</option><option>USD</option><option>EUR</option></select>
+        </div>
       </div>
     </div>
+    <div class="chip-hint" id="fxHint"></div>
     <div class="field"><label>Cephe / Manzara / Özellikler (virgülle ayır)</label><input id="p_tags" placeholder="deniz manzarası, yan cephe, otopark"></div>
     <div class="field"><label>Açıklama (opsiyonel)</label><textarea id="p_desc" placeholder="Ek notlar..."></textarea></div>
     <div class="field">
@@ -499,6 +510,14 @@
       <label>Kabul ettiği katlar (opsiyonel, birden fazla seçebilirsin)</label>
       <div class="chip-wrap" id="c_floor_chips"></div>
       <div class="chip-hint">Hiçbiri seçilmezse kat fark etmez.</div>
+    </div>
+    <div class="field">
+      <label>İlgilendiği durum</label>
+      <div class="chip-wrap" id="c_status_chips">
+        <div class="chip" data-cstatus="Satılık">Satılık</div>
+        <div class="chip" data-cstatus="Kiralık">Kiralık</div>
+      </div>
+      <div class="chip-hint">İkisi de seçiliyse hem satılık hem kiralık dairelerle eşleşir.</div>
     </div>
     <div class="row2">
       <div class="field"><label>Min bütçe</label><input id="c_min" type="number" placeholder="0"></div>
@@ -551,6 +570,7 @@
   let selectedStatuses = [];
   let openClientId = null;
   let selectedClientFloors = [];
+  let selectedClientStatuses = [];
   let editingClientHiddenPhone = null;
   function isClientOwner(c){ return !c || !c.createdBy || c.createdBy === CURRENT_USER; }
 
@@ -563,6 +583,35 @@
     if(Array.isArray(rec.status)) return rec.status;
     if(rec.status) return [rec.status];
     return [];
+  }
+  // type: 'sale' | 'rent' — eski (tek "price"/"currency" alanlı) kayıtlar için geriye dönük uyumluluk sağlar
+  function priceOf(prop, type){
+    const key = type === 'sale' ? 'priceSale' : 'priceRent';
+    if(prop[key] !== undefined && prop[key] !== '' && prop[key] !== null) return Number(prop[key])||0;
+    const wantedStatus = type === 'sale' ? 'Satılık' : 'Kiralık';
+    if(prop.price !== undefined && prop.price !== '' && statusOf(prop).includes(wantedStatus)) return Number(prop.price)||0;
+    return null;
+  }
+  function currencyOf(prop, type){
+    const key = type === 'sale' ? 'currencySale' : 'currencyRent';
+    if(prop[key]) return prop[key];
+    const wantedStatus = type === 'sale' ? 'Satılık' : 'Kiralık';
+    if(prop.currency && statusOf(prop).includes(wantedStatus)) return prop.currency;
+    return type === 'sale' ? 'USD' : 'TRY';
+  }
+  function priceLabel(prop){
+    const st = statusOf(prop);
+    const multi = st.length > 1;
+    const parts = [];
+    if(st.includes('Satılık')){
+      const v = priceOf(prop,'sale');
+      if(v!==null) parts.push((multi?'Satılık ':'')+fmtPrice(v)+' '+currencyOf(prop,'sale'));
+    }
+    if(st.includes('Kiralık')){
+      const v = priceOf(prop,'rent');
+      if(v!==null) parts.push((multi?'Kiralık ':'')+fmtPrice(v)+' '+currencyOf(prop,'rent'));
+    }
+    return parts.join(' · ');
   }
 
   const FLOOR_OPTIONS = ['Bahçe Katı', ...Array.from({length:20},(_,i)=>String(i+1)), '20+'];
@@ -645,6 +694,51 @@
     }catch(e){}
   }
 
+  // ---------- GÜNCEL KUR (çapraz para birimi eşleştirmesi için) ----------
+  let EXCHANGE_RATES = null; // {USD:1, TRY:.., EUR:..} — 1 USD karşılığı
+  const RATES_KEY = 'daruma_fx_rates_v1';
+  const RATES_MAX_AGE = 12*60*60*1000; // 12 saat
+
+  function updateFxHint(){
+    const el = $('fxHint');
+    if(!el) return;
+    if(!EXCHANGE_RATES){ el.textContent = ''; return; }
+    el.textContent = `Güncel kur: 1 USD ≈ ${EXCHANGE_RATES.TRY.toLocaleString('tr-TR',{maximumFractionDigits:2})} TRY · 1 USD ≈ ${EXCHANGE_RATES.EUR.toLocaleString('tr-TR',{maximumFractionDigits:2})} EUR — farklı para birimindeki eşleşmeler bu kura göre otomatik hesaplanır.`;
+  }
+
+  async function loadExchangeRates(){
+    try{
+      const cached = JSON.parse(localStorage.getItem(RATES_KEY)||'null');
+      if(cached && cached.rates && (Date.now()-cached.ts) < RATES_MAX_AGE){
+        EXCHANGE_RATES = cached.rates;
+        render(); updateFxHint();
+        return;
+      }
+    }catch(e){}
+    try{
+      const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=TRY,EUR');
+      const data = await res.json();
+      const rates = {USD:1, TRY:data.rates.TRY, EUR:data.rates.EUR};
+      EXCHANGE_RATES = rates;
+      localStorage.setItem(RATES_KEY, JSON.stringify({rates, ts:Date.now()}));
+      render(); updateFxHint();
+    }catch(e){
+      // internet yok / API çöktü: elde eski bir kur varsa (süresi geçmiş de olsa) onu kullan
+      try{
+        const cached = JSON.parse(localStorage.getItem(RATES_KEY)||'null');
+        if(cached && cached.rates){ EXCHANGE_RATES = cached.rates; render(); updateFxHint(); }
+      }catch(e2){}
+    }
+  }
+  function convertCurrency(amount, fromCur, toCur){
+    if(fromCur === toCur) return amount;
+    if(!EXCHANGE_RATES) return null; // kur henüz yüklenmedi, dönüşüm yapılamaz
+    const fromRate = EXCHANGE_RATES[fromCur];
+    const toRate = EXCHANGE_RATES[toCur];
+    if(!fromRate || !toRate) return null;
+    return (amount / fromRate) * toRate; // önce USD'ye, sonra hedef birime
+  }
+
   async function loadAll(){
     await migrateOldLocalDataIfNeeded();
     fsDb.collection('properties').onSnapshot(snap=>{
@@ -684,12 +778,28 @@
     if(client.floors && client.floors.length && !client.floors.includes(prop.floor)) return null;
     // vatandaşlık: sadece müşteri özellikle istiyorsa kontrol edilir, aksi halde önemsiz
     if(client.citizenshipRequired && !prop.citizenshipEligible) return null;
-    // para birimi + bütçe
-    if(client.currency !== prop.currency) return null;
-    const price = Number(prop.price)||0;
+    // durum (satılık/kiralık): müşterinin ilgilendiği durumla dairenin durumu kesişmeli
+    const clientStatuses = statusOf(client).length ? statusOf(client) : ['Satılık','Kiralık'];
+    const propStatuses = statusOf(prop);
+    const overlapStatuses = propStatuses.filter(s => clientStatuses.includes(s));
+    if(!overlapStatuses.length) return null;
+    // bütçe + para birimi (kesişen durumlardan en az biri, kendi para biriminde bütçeye uymalı)
     const min = client.min ? Number(client.min) : 0;
     const max = client.max ? Number(client.max) : Infinity;
-    if(price < min || price > max) return null;
+    const fitsBudget = overlapStatuses.some(s=>{
+      const type = s==='Satılık' ? 'sale' : 'rent';
+      const v = priceOf(prop, type);
+      if(v === null) return false;
+      const propCurrency = currencyOf(prop, type);
+      let compareValue = v;
+      if(client.currency !== propCurrency){
+        const converted = convertCurrency(v, propCurrency, client.currency);
+        if(converted === null) return false; // kur henüz yüklenmediyse bu tur eşleştirilmez, kur gelince otomatik yeniden değerlendirilir
+        compareValue = converted;
+      }
+      return compareValue >= min && compareValue <= max;
+    });
+    if(!fitsBudget) return null;
     // özellikler: en az biri örtüşmeli (istenen özellik varsa)
     const wanted = tagList(client.tags);
     let overlap = 0;
@@ -746,7 +856,7 @@
         ${tags.length? `<div class="tags">${tags.map(t=>`<span>${esc(t)}</span>`).join('')}</div>` : ''}
         ${photos.length? `<div class="photo-row">${photos.slice(0,5).map(m=>m.type==='video'?`<video src="${srcOf(m)}" muted></video>`:`<img src="${srcOf(m)}">`).join('')}${photos.length>5?`<div class="more">+${photos.length-5}</div>`:''}</div>` : ''}
         <div class="card-foot">
-          <div class="stamp">${fmtPrice(p.price)} ${p.currency}</div>
+          <div class="stamp">${priceLabel(p)}</div>
           <div class="card-actions">
             <button class="icon-btn" data-share-prop="${p.id}">📤</button>
             <button class="icon-btn" data-download-prop="${p.id}">⬇️</button>
@@ -796,7 +906,7 @@
                 <div class="t">${esc(prop.site)} ${esc(prop.block)}</div>
                 <div class="p">${esc(prop.loc)} · ${esc(prop.rooms)}</div>
               </div>
-              <div class="mi-price">${fmtPrice(prop.price)} ${prop.currency}</div>
+              <div class="mi-price">${priceLabel(prop)}</div>
             </div>
           `).join('') : `<div style="font-size:12.5px;color:var(--muted);">Şu an kriterlerine uyan daire yok.</div>`}
           ${c.notes? `<div style="margin-top:10px;font-size:12.5px;color:var(--muted);"><b style="color:var(--ink)">Not:</b> ${esc(c.notes)}</div>`:''}
@@ -838,7 +948,7 @@
                 <div class="t">${esc(prop.site)} ${esc(prop.block)}</div>
                 <div class="p">${esc(prop.loc)} · ${esc(prop.rooms)}</div>
               </div>
-              <div class="mi-price">${fmtPrice(prop.price)} ${prop.currency}</div>
+              <div class="mi-price">${priceLabel(prop)}</div>
             </div>
           `).join('')}
           ${ownerC? `<button class="send-btn" data-whatsapp="${c.id}">💬 En iyi eşleşmeyi WhatsApp'ta gönder</button>` : `<div style="font-size:12px;color:var(--muted);margin-top:6px;">Bu müşteriyi ${esc(c.createdBy)} ekledi — telefon ve gönderme onda.</div>`}
@@ -916,7 +1026,7 @@
         }catch(e){}
       }
       if(!files.length){ showToast('Fotoğraflar yüklenemedi, tekrar dene.'); return; }
-      const shareText = `${p.site} ${p.block||''} - ${p.rooms} - ${fmtPrice(p.price)} ${p.currency}`;
+      const shareText = `${p.site} ${p.block||''} - ${p.rooms} - ${priceLabel(p)}`;
       if(navigator.canShare && navigator.canShare({files})){
         await navigator.share({files, title:p.site, text:shareText});
       } else if(navigator.share){
@@ -989,7 +1099,7 @@
     else if(!phone.startsWith('90') && phone.length===10) phone = '90'+phone;
     const floorTxt = prop.floor ? (prop.floor==='Bahçe Katı' ? 'Bahçe Katı' : prop.floor+'. Kat') : '';
     const text = `Merhaba ${c.name}, aradığınız kritere uygun bir daire çıktı:\n\n`+
-      `${prop.site} ${prop.block?'- '+prop.block:''}\n${prop.loc}\n${prop.rooms}${floorTxt? ' · '+floorTxt:''} · ${fmtPrice(prop.price)} ${prop.currency}\n`+
+      `${prop.site} ${prop.block?'- '+prop.block:''}\n${prop.loc}\n${prop.rooms}${floorTxt? ' · '+floorTxt:''} · ${priceLabel(prop)}\n`+
       `${tagList(prop.tags).join(', ')}\n\nFotoğrafları ayrıca gönderiyorum.`;
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
@@ -1003,6 +1113,7 @@
 
   // ---------- PROPERTY FORM ----------
   function openPropForm(id){
+    updateFxHint();
     editingPropId = id;
     const p = id ? properties.find(x=>x.id===id) : null;
     $('propFormTitle').textContent = id ? 'Daireyi Düzenle' : 'Yeni Daire';
@@ -1014,8 +1125,11 @@
     renderStatusChips();
     $('p_floor').value = p? (p.floor||'1') : '1';
     $('p_citizenship').checked = p? !!p.citizenshipEligible : false;
-    $('p_price').value = p? p.price:'';
-    $('p_currency').value = p? p.currency:'USD';
+    const legacyStatuses = p ? statusOf(p) : [];
+    $('p_price_sale').value = p? (p.priceSale!==undefined && p.priceSale!=='' ? p.priceSale : (legacyStatuses.includes('Satılık') ? (p.price||'') : '')) : '';
+    $('p_price_rent').value = p? (p.priceRent!==undefined && p.priceRent!=='' ? p.priceRent : (legacyStatuses.includes('Kiralık') ? (p.price||'') : '')) : '';
+    $('p_currency_sale').value = p? (p.currencySale || (legacyStatuses.includes('Satılık') ? (p.currency||'USD') : 'USD')) : 'USD';
+    $('p_currency_rent').value = p? (p.currencyRent || (legacyStatuses.includes('Kiralık') ? (p.currency||'TRY') : 'TRY')) : 'TRY';
     $('p_tags').value = p? p.tags:'';
     $('p_desc').value = p? p.desc:'';
     pendingMedia = p? mediaOf(p).slice() : [];
@@ -1029,6 +1143,8 @@
     $('p_status_chips').querySelectorAll('[data-status]').forEach(chip=>{
       chip.classList.toggle('selected', selectedStatuses.includes(chip.dataset.status));
     });
+    $('p_price_sale_wrap').style.display = selectedStatuses.includes('Satılık') ? '' : 'none';
+    $('p_price_rent_wrap').style.display = selectedStatuses.includes('Kiralık') ? '' : 'none';
   }
   $('p_status_chips').addEventListener('click', (e)=>{
     const chip = e.target.closest('[data-status]');
@@ -1142,8 +1258,10 @@
       status: selectedStatuses.slice(),
       floor: $('p_floor').value,
       citizenshipEligible: $('p_citizenship').checked,
-      price: $('p_price').value,
-      currency: $('p_currency').value,
+      priceSale: selectedStatuses.includes('Satılık') ? $('p_price_sale').value : '',
+      priceRent: selectedStatuses.includes('Kiralık') ? $('p_price_rent').value : '',
+      currencySale: selectedStatuses.includes('Satılık') ? $('p_currency_sale').value : '',
+      currencyRent: selectedStatuses.includes('Kiralık') ? $('p_currency_rent').value : '',
       tags: $('p_tags').value.trim(),
       desc: $('p_desc').value.trim(),
       media: finalMedia,
@@ -1193,6 +1311,8 @@
     $('c_citizenship').checked = c? !!c.citizenshipRequired : false;
     selectedClientFloors = c? (c.floors||[]).slice() : [];
     renderFloorChips();
+    selectedClientStatuses = c? statusOf(c).slice() : ['Satılık','Kiralık'];
+    renderClientStatusChips();
     $('clientOverlay').classList.add('open');
   }
 
@@ -1209,6 +1329,20 @@
     if(selectedClientFloors.includes(f)) selectedClientFloors = selectedClientFloors.filter(x=>x!==f);
     else selectedClientFloors.push(f);
     renderFloorChips();
+  });
+
+  function renderClientStatusChips(){
+    $('c_status_chips').querySelectorAll('[data-cstatus]').forEach(chip=>{
+      chip.classList.toggle('selected', selectedClientStatuses.includes(chip.dataset.cstatus));
+    });
+  }
+  $('c_status_chips').addEventListener('click', (e)=>{
+    const chip = e.target.closest('[data-cstatus]');
+    if(!chip) return;
+    const s = chip.dataset.cstatus;
+    if(selectedClientStatuses.includes(s)) selectedClientStatuses = selectedClientStatuses.filter(x=>x!==s);
+    else selectedClientStatuses.push(s);
+    renderClientStatusChips();
   });
 
   $('clientSave').addEventListener('click', async ()=>{
@@ -1231,6 +1365,7 @@
       tags: $('c_tags').value.trim(),
       notes: $('c_notes').value.trim(),
       citizenshipRequired: $('c_citizenship').checked,
+      status: selectedClientStatuses.slice(),
       createdBy: (existingC && existingC.createdBy) ? existingC.createdBy : CURRENT_USER,
       createdAt: editingClientId ? (existingC||{}).createdAt || Date.now() : Date.now()
     };
@@ -1256,6 +1391,7 @@
   });
 
   loadAll();
+  loadExchangeRates();
 
   // ---------- KULLANICI KIMLIGI (musteri telefon gizliligi icin) ----------
   const USER_KEY = 'daruma_user';
