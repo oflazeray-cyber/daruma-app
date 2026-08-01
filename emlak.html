@@ -462,6 +462,9 @@
           <input id="p_price_sale" type="number" placeholder="1000000" style="flex:1;">
           <select id="p_currency_sale" style="width:88px;"><option>USD</option><option>TRY</option><option>EUR</option></select>
         </div>
+        <label style="display:flex; align-items:center; gap:6px; margin-top:7px; font-weight:500; font-size:13px; color:var(--muted);">
+          <input type="checkbox" id="p_kdv_sale" style="width:auto;"> +KDV (%20 eklenir)
+        </label>
       </div>
       <div class="field" id="p_price_rent_wrap">
         <label>Kiralık Fiyatı</label>
@@ -469,6 +472,9 @@
           <input id="p_price_rent" type="number" placeholder="15000" style="flex:1;">
           <select id="p_currency_rent" style="width:88px;"><option>TRY</option><option>USD</option><option>EUR</option></select>
         </div>
+        <label style="display:flex; align-items:center; gap:6px; margin-top:7px; font-weight:500; font-size:13px; color:var(--muted);">
+          <input type="checkbox" id="p_kdv_rent" style="width:auto;"> +KDV (%20 eklenir)
+        </label>
       </div>
     </div>
     <div class="chip-hint" id="fxHint"></div>
@@ -529,6 +535,10 @@
     <div class="field" id="c_furnished_wrap">
       <label>Kiralıkta Eşya Tercihi</label>
       <select id="c_furnished"><option>Farketmez</option><option>Eşyalı</option><option>Eşyasız</option></select>
+    </div>
+    <div class="field">
+      <label>KDV Tercihi</label>
+      <select id="c_kdv"><option>Farketmez</option><option>KDV'li</option><option>KDV'siz</option></select>
     </div>
     <div class="row2">
       <div class="field"><label>Min bütçe</label><input id="c_min" type="number" placeholder="0"></div>
@@ -616,18 +626,26 @@
     if(prop.currency && statusOf(prop).includes(wantedStatus)) return prop.currency;
     return type === 'sale' ? 'USD' : 'TRY';
   }
+  const KDV_RATE = 1.20;
+  function kdvOf(prop, type){ return !!prop[type==='sale' ? 'kdvSale' : 'kdvRent']; }
+  // KDV dahil geçerli fiyat — bütçe kıyaslaması ve ana ekran gösterimi bu fiyat üzerinden yapılır
+  function effectivePriceOf(prop, type){
+    const v = priceOf(prop, type);
+    if(v === null) return null;
+    return kdvOf(prop, type) ? v * KDV_RATE : v;
+  }
   function priceLabel(prop){
     const st = statusOf(prop);
     const multi = st.length > 1;
     const parts = [];
     if(st.includes('Satılık')){
-      const v = priceOf(prop,'sale');
-      if(v!==null) parts.push((multi?'Satılık ':'')+fmtPrice(v)+' '+currencyOf(prop,'sale'));
+      const v = effectivePriceOf(prop,'sale');
+      if(v!==null) parts.push((multi?'Satılık ':'')+fmtPrice(v)+' '+currencyOf(prop,'sale')+(kdvOf(prop,'sale')?' +KDV':''));
     }
     if(st.includes('Kiralık')){
-      const v = priceOf(prop,'rent');
+      const v = effectivePriceOf(prop,'rent');
       const furn = furnishedOf(prop);
-      if(v!==null) parts.push((multi?'Kiralık ':'')+fmtPrice(v)+' '+currencyOf(prop,'rent')+(furn.length?' · '+furn.join('/'):''));
+      if(v!==null) parts.push((multi?'Kiralık ':'')+fmtPrice(v)+' '+currencyOf(prop,'rent')+(kdvOf(prop,'rent')?' +KDV':'')+(furn.length?' · '+furn.join('/'):''));
     }
     return parts.join(' · ');
   }
@@ -811,7 +829,12 @@
         const propFurnished = furnishedOf(prop);
         if(propFurnished.length && !propFurnished.includes(client.furnishedPref)) return false;
       }
-      const v = priceOf(prop, type);
+      // KDV tercihi: müşteri özellikle istiyorsa (Farketmez değilse) dairenin KDV durumu uymalı
+      if(client.kdvPref && client.kdvPref!=='Farketmez'){
+        const wantsKdv = client.kdvPref === "KDV'li";
+        if(kdvOf(prop, type) !== wantsKdv) return false;
+      }
+      const v = effectivePriceOf(prop, type);
       if(v === null) return false;
       const propCurrency = currencyOf(prop, type);
       let compareValue = v;
@@ -1152,6 +1175,8 @@
     const legacyStatuses = p ? statusOf(p) : [];
     $('p_price_sale').value = p? (p.priceSale!==undefined && p.priceSale!=='' ? p.priceSale : (legacyStatuses.includes('Satılık') ? (p.price||'') : '')) : '';
     $('p_price_rent').value = p? (p.priceRent!==undefined && p.priceRent!=='' ? p.priceRent : (legacyStatuses.includes('Kiralık') ? (p.price||'') : '')) : '';
+    $('p_kdv_sale').checked = p? !!p.kdvSale : false;
+    $('p_kdv_rent').checked = p? !!p.kdvRent : false;
     $('p_currency_sale').value = p? (p.currencySale || (legacyStatuses.includes('Satılık') ? (p.currency||'USD') : 'USD')) : 'USD';
     $('p_currency_rent').value = p? (p.currencyRent || (legacyStatuses.includes('Kiralık') ? (p.currency||'TRY') : 'TRY')) : 'TRY';
     $('p_tags').value = p? p.tags:'';
@@ -1296,6 +1321,8 @@
       citizenshipEligible: $('p_citizenship').checked,
       priceSale: selectedStatuses.includes('Satılık') ? $('p_price_sale').value : '',
       priceRent: selectedStatuses.includes('Kiralık') ? $('p_price_rent').value : '',
+      kdvSale: selectedStatuses.includes('Satılık') ? $('p_kdv_sale').checked : false,
+      kdvRent: selectedStatuses.includes('Kiralık') ? $('p_kdv_rent').checked : false,
       furnished: selectedStatuses.includes('Kiralık') ? selectedFurnished.slice() : [],
       currencySale: selectedStatuses.includes('Satılık') ? $('p_currency_sale').value : '',
       currencyRent: selectedStatuses.includes('Kiralık') ? $('p_currency_rent').value : '',
@@ -1351,6 +1378,7 @@
     selectedClientStatuses = c? statusOf(c).slice() : ['Satılık','Kiralık'];
     renderClientStatusChips();
     $('c_furnished').value = c? (c.furnishedPref || 'Farketmez') : 'Farketmez';
+    $('c_kdv').value = c? (c.kdvPref || 'Farketmez') : 'Farketmez';
     $('clientOverlay').classList.add('open');
   }
 
@@ -1406,6 +1434,7 @@
       citizenshipRequired: $('c_citizenship').checked,
       status: selectedClientStatuses.slice(),
       furnishedPref: $('c_furnished').value,
+      kdvPref: $('c_kdv').value,
       createdBy: (existingC && existingC.createdBy) ? existingC.createdBy : CURRENT_USER,
       createdAt: editingClientId ? (existingC||{}).createdAt || Date.now() : Date.now()
     };
