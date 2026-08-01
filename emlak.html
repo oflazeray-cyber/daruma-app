@@ -547,7 +547,11 @@
     <div class="field"><label>Para birimi</label>
       <select id="c_currency"><option>USD</option><option>TRY</option><option>EUR</option></select>
     </div>
-    <div class="field"><label>İstenen özellikler (virgülle ayır, opsiyonel)</label><input id="c_tags" placeholder="deniz manzarası, otopark"></div>
+    <div class="field">
+      <label>İstenen özellikler (virgülle ayır, opsiyonel)</label>
+      <input id="c_tags" placeholder="deniz manzarası, otopark">
+      <div class="chip-hint">Herhangi bir özellik şart değilse burayı boş bırak — "farketmez" gibi yazmayın, bu bir daire özelliği gibi aranır ve eşleşmeyi engelleyebilir.</div>
+    </div>
     <div class="field">
       <label class="check-row">
         <input type="checkbox" id="c_citizenship">
@@ -847,7 +851,8 @@
     });
     if(!fitsBudget) return null;
     // özellikler: en az biri örtüşmeli (istenen özellik varsa)
-    const wanted = tagList(client.tags);
+    const NOISE_TAGS = ['farketmez',"fark etmez",'yok','hiçbiri','önemli değil'];
+    const wanted = tagList(client.tags).filter(t => !NOISE_TAGS.includes(t));
     let overlap = 0;
     if(wanted.length){
       const have = tagList(prop.tags);
