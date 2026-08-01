@@ -472,6 +472,13 @@
       </div>
     </div>
     <div class="chip-hint" id="fxHint"></div>
+    <div class="field" id="p_furnished_wrap">
+      <label>Kiralık Durumu</label>
+      <div class="chip-wrap" id="p_furnished_chips">
+        <div class="chip" data-furnished="Eşyalı">Eşyalı</div>
+        <div class="chip" data-furnished="Eşyasız">Eşyasız</div>
+      </div>
+    </div>
     <div class="field"><label>Cephe / Manzara / Özellikler (virgülle ayır)</label><input id="p_tags" placeholder="deniz manzarası, yan cephe, otopark"></div>
     <div class="field"><label>Açıklama (opsiyonel)</label><textarea id="p_desc" placeholder="Ek notlar..."></textarea></div>
     <div class="field">
@@ -518,6 +525,10 @@
         <div class="chip" data-cstatus="Kiralık">Kiralık</div>
       </div>
       <div class="chip-hint">İkisi de seçiliyse hem satılık hem kiralık dairelerle eşleşir.</div>
+    </div>
+    <div class="field" id="c_furnished_wrap">
+      <label>Kiralıkta Eşya Tercihi</label>
+      <select id="c_furnished"><option>Farketmez</option><option>Eşyalı</option><option>Eşyasız</option></select>
     </div>
     <div class="row2">
       <div class="field"><label>Min bütçe</label><input id="c_min" type="number" placeholder="0"></div>
@@ -568,6 +579,7 @@
   let editingClientId = null;
   let pendingMedia = []; // {type:'image'|'video', data:base64} for form in progress
   let selectedStatuses = [];
+  let selectedFurnished = [];
   let openClientId = null;
   let selectedClientFloors = [];
   let selectedClientStatuses = [];
@@ -582,6 +594,11 @@
   function statusOf(rec){
     if(Array.isArray(rec.status)) return rec.status;
     if(rec.status) return [rec.status];
+    return [];
+  }
+  function furnishedOf(prop){
+    if(Array.isArray(prop.furnished)) return prop.furnished;
+    if(prop.furnished) return [prop.furnished];
     return [];
   }
   // type: 'sale' | 'rent' — eski (tek "price"/"currency" alanlı) kayıtlar için geriye dönük uyumluluk sağlar
@@ -609,7 +626,8 @@
     }
     if(st.includes('Kiralık')){
       const v = priceOf(prop,'rent');
-      if(v!==null) parts.push((multi?'Kiralık ':'')+fmtPrice(v)+' '+currencyOf(prop,'rent'));
+      const furn = furnishedOf(prop);
+      if(v!==null) parts.push((multi?'Kiralık ':'')+fmtPrice(v)+' '+currencyOf(prop,'rent')+(furn.length?' · '+furn.join('/'):''));
     }
     return parts.join(' · ');
   }
@@ -788,6 +806,11 @@
     const max = client.max ? Number(client.max) : Infinity;
     const fitsBudget = overlapStatuses.some(s=>{
       const type = s==='Satılık' ? 'sale' : 'rent';
+      // kiralıkta eşya tercihi: müşteri özellikle istiyorsa (Farketmez değilse) dairenin durumu uymalı
+      if(type==='rent' && client.furnishedPref && client.furnishedPref!=='Farketmez'){
+        const propFurnished = furnishedOf(prop);
+        if(propFurnished.length && !propFurnished.includes(client.furnishedPref)) return false;
+      }
       const v = priceOf(prop, type);
       if(v === null) return false;
       const propCurrency = currencyOf(prop, type);
@@ -1122,6 +1145,7 @@
     $('p_block').value = p? p.block:'';
     $('p_rooms').value = p? p.rooms:'3+1';
     selectedStatuses = p? statusOf(p).slice() : ['Satılık'];
+    selectedFurnished = p? furnishedOf(p).slice() : [];
     renderStatusChips();
     $('p_floor').value = p? (p.floor||'1') : '1';
     $('p_citizenship').checked = p? !!p.citizenshipEligible : false;
@@ -1145,7 +1169,19 @@
     });
     $('p_price_sale_wrap').style.display = selectedStatuses.includes('Satılık') ? '' : 'none';
     $('p_price_rent_wrap').style.display = selectedStatuses.includes('Kiralık') ? '' : 'none';
+    $('p_furnished_wrap').style.display = selectedStatuses.includes('Kiralık') ? '' : 'none';
+    $('p_furnished_chips').querySelectorAll('[data-furnished]').forEach(chip=>{
+      chip.classList.toggle('selected', selectedFurnished.includes(chip.dataset.furnished));
+    });
   }
+  $('p_furnished_chips').addEventListener('click', (e)=>{
+    const chip = e.target.closest('[data-furnished]');
+    if(!chip) return;
+    const f = chip.dataset.furnished;
+    if(selectedFurnished.includes(f)) selectedFurnished = selectedFurnished.filter(x=>x!==f);
+    else selectedFurnished.push(f);
+    renderStatusChips();
+  });
   $('p_status_chips').addEventListener('click', (e)=>{
     const chip = e.target.closest('[data-status]');
     if(!chip) return;
@@ -1260,6 +1296,7 @@
       citizenshipEligible: $('p_citizenship').checked,
       priceSale: selectedStatuses.includes('Satılık') ? $('p_price_sale').value : '',
       priceRent: selectedStatuses.includes('Kiralık') ? $('p_price_rent').value : '',
+      furnished: selectedStatuses.includes('Kiralık') ? selectedFurnished.slice() : [],
       currencySale: selectedStatuses.includes('Satılık') ? $('p_currency_sale').value : '',
       currencyRent: selectedStatuses.includes('Kiralık') ? $('p_currency_rent').value : '',
       tags: $('p_tags').value.trim(),
@@ -1313,6 +1350,7 @@
     renderFloorChips();
     selectedClientStatuses = c? statusOf(c).slice() : ['Satılık','Kiralık'];
     renderClientStatusChips();
+    $('c_furnished').value = c? (c.furnishedPref || 'Farketmez') : 'Farketmez';
     $('clientOverlay').classList.add('open');
   }
 
@@ -1335,6 +1373,7 @@
     $('c_status_chips').querySelectorAll('[data-cstatus]').forEach(chip=>{
       chip.classList.toggle('selected', selectedClientStatuses.includes(chip.dataset.cstatus));
     });
+    $('c_furnished_wrap').style.display = selectedClientStatuses.includes('Kiralık') ? '' : 'none';
   }
   $('c_status_chips').addEventListener('click', (e)=>{
     const chip = e.target.closest('[data-cstatus]');
@@ -1366,6 +1405,7 @@
       notes: $('c_notes').value.trim(),
       citizenshipRequired: $('c_citizenship').checked,
       status: selectedClientStatuses.slice(),
+      furnishedPref: $('c_furnished').value,
       createdBy: (existingC && existingC.createdBy) ? existingC.createdBy : CURRENT_USER,
       createdAt: editingClientId ? (existingC||{}).createdAt || Date.now() : Date.now()
     };
