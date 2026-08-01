@@ -486,7 +486,9 @@
     <div class="field"><label>Telefon</label><input id="c_phone" placeholder="Tel no"></div>
     <div class="row2">
       <div class="field"><label>Aranan site (opsiyonel)</label><input id="c_site" placeholder="Boş = fark etmez"></div>
-      <div class="field"><label>Aranan blok (opsiyonel)</label><input id="c_block" placeholder="Boş = fark etmez"></div>
+      <div class="field"><label>Aranan blok (opsiyonel)</label><input id="c_block" placeholder="Boş=fark etmez, birden fazlaysa virgülle: A, C, 12">
+      <div class="chip-hint">Birden fazla blok seçimi yapabilirsiniz, virgülle (,) ayırınız.</div>
+    </div>
     </div>
     <div class="field"><label>Oda sayısı</label>
       <select id="c_rooms">
@@ -672,8 +674,12 @@
     if(client.rooms && client.rooms !== 'Fark etmez' && client.rooms !== prop.rooms) return null;
     // site
     if(client.site && !norm(prop.site).includes(norm(client.site))) return null;
-    // blok
-    if(client.block && !norm(prop.block).includes(norm(client.block))) return null;
+    // blok (virgülle birden fazla blok yazılabilir; herhangi biri eşleşirse yeterli)
+    if(client.block){
+      const wantedBlocks = tagList(client.block);
+      const propBlock = norm(prop.block);
+      if(wantedBlocks.length && !wantedBlocks.some(b => propBlock.includes(b))) return null;
+    }
     // kat (birden fazla seçim olabilir)
     if(client.floors && client.floors.length && !client.floors.includes(prop.floor)) return null;
     // vatandaşlık: sadece müşteri özellikle istiyorsa kontrol edilir, aksi halde önemsiz
