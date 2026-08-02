@@ -689,7 +689,8 @@
   }
 
   const FLOOR_OPTIONS = ['Bahçe Katı', ...Array.from({length:20},(_,i)=>String(i+1)), '20+'];
-  const FEATURE_OPTIONS = ['Farketmez','Deniz manzaralı','Yan cephe','Güney cephe','Doğu cephe','Batı cephe','Kuzey cephe','Peyzaj manzaralı'];
+  const FEATURE_OPTIONS = ['Deniz manzaralı','Yan cephe','Güney cephe','Doğu cephe','Batı cephe','Kuzey cephe','Peyzaj manzaralı'];
+  const CLIENT_FEATURE_OPTIONS = ['Farketmez', ...FEATURE_OPTIONS];
 
   const $ = (id) => document.getElementById(id);
   $('p_floor').innerHTML = FLOOR_OPTIONS.map(f=>`<option value="${f}">${f}</option>`).join('');
@@ -977,6 +978,7 @@
           <div class="card-actions">
             <button class="icon-btn" data-share-prop="${p.id}">📤</button>
             <button class="icon-btn" data-download-prop="${p.id}">⬇️</button>
+            <button class="icon-btn" data-announce-prop="${p.id}">📢</button>
             <button class="icon-btn" data-edit-prop="${p.id}">✎</button>
             <button class="icon-btn danger" data-del-prop="${p.id}">🗑</button>
           </div>
@@ -1104,6 +1106,8 @@
     if(shareP){ shareProperty(shareP.dataset.shareProp); return; }
     const downloadP = e.target.closest('[data-download-prop]');
     if(downloadP){ downloadProperty(downloadP.dataset.downloadProp); return; }
+    const announceP = e.target.closest('[data-announce-prop]');
+    if(announceP){ shareAnnouncement(announceP.dataset.announceProp); return; }
     const delP = e.target.closest('[data-del-prop]');
     if(delP){
       if(confirm('Bu daireyi silmek istediğine emin misin?')){
@@ -1207,6 +1211,180 @@
     }
     if(ok) showToast(`${ok} dosya indirildi.`, 4000);
     else showToast('İndirme başarısız oldu, tekrar dene.');
+  }
+
+  function roundRectPath(ctx,x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
+  async function loadImageFromUrl(url){
+    try{
+      const res = await fetch(url);
+      const blob = await res.blob();
+      return await createImageBitmap(blob);
+    }catch(e){ return null; }
+  }
+
+  function drawImageCover(ctx, img, x, y, w, h){
+    const ir = img.width / img.height, tr = w / h;
+    let sx=0, sy=0, sw=img.width, sh=img.height;
+    if(ir > tr){ sw = img.height * tr; sx = (img.width - sw) / 2; }
+    else { sh = img.width / tr; sy = (img.height - sh) / 2; }
+    ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+  }
+
+  async function generateAnnouncementCanvas(prop){
+    const W = 1080, H = 1920;
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    const COL_DEEP = '#6E1423', COL_DEEP2='#4b0e1c', COL_BRASS='#C09143', COL_BG='#F5F1EC', COL_INK='#241512', COL_MUTED='#6E5C56';
+
+    // hero gradient
+    const grad = ctx.createLinearGradient(0,0,0,560);
+    grad.addColorStop(0,'#8a2033'); grad.addColorStop(1,COL_DEEP2);
+    ctx.fillStyle = grad; ctx.fillRect(0,0,W,560);
+    ctx.fillStyle = COL_BG; ctx.fillRect(0,560,W,H-560);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    ctx.font = "700 30px Georgia, 'Times New Roman', serif";
+    ctx.fillText('DARUMA GAYRİMENKUL', W/2, 90);
+    ctx.font = "700 15px Arial";
+    ctx.fillStyle = COL_BRASS;
+    ctx.fillText('A K I L L I   T A K İ P   S İ S T E M İ', W/2, 118);
+
+    // bell badge
+    ctx.beginPath(); ctx.arc(W/2, 205, 55, 0, Math.PI*2);
+    const bg = ctx.createLinearGradient(W/2-55,150,W/2+55,260);
+    bg.addColorStop(0,'#E7BE7C'); bg.addColorStop(1,COL_BRASS);
+    ctx.fillStyle = bg; ctx.fill();
+    ctx.font = '52px Arial'; ctx.fillStyle='#fff'; ctx.fillText('🔔', W/2, 224);
+
+    ctx.font = "800 46px Georgia, 'Times New Roman', serif";
+    ctx.fillStyle = '#fff';
+    wrapCenterText(ctx, 'YENİ BİR PORTFÖY', W/2, 320, 900, 52);
+    wrapCenterText(ctx, 'EKLENDİ!', W/2, 372, 900, 52);
+
+    ctx.font = "500 22px Arial";
+    ctx.fillStyle = '#EAD9CE';
+    wrapCenterText(ctx, 'Kim bilir, belki bu daire tam size göre...', W/2, 450, 820, 30);
+
+    // photo
+    const photoY = 610, photoH = 520;
+    roundRectPath(ctx, 60, photoY, W-120, photoH, 22);
+    ctx.save(); ctx.clip();
+    const media = mediaOf(prop);
+    let drew = false;
+    if(media.length){
+      const img = await loadImageFromUrl(srcOf(media[0]));
+      if(img){ drawImageCover(ctx, img, 60, photoY, W-120, photoH); drew = true; }
+    }
+    if(!drew){
+      const pg = ctx.createLinearGradient(60,photoY,W-60,photoY+photoH);
+      pg.addColorStop(0,'#DED0BE'); pg.addColorStop(1,'#C7B79C');
+      ctx.fillStyle = pg; ctx.fillRect(60,photoY,W-120,photoH);
+      ctx.font = '100px Arial'; ctx.fillStyle='rgba(36,21,18,.45)';
+      ctx.fillText('🏢', W/2, photoY+photoH/2+35);
+    }
+    ctx.restore();
+
+    // info card
+    const cardY = photoY + photoH + 30, cardH = 340;
+    roundRectPath(ctx, 60, cardY, W-120, cardH, 20);
+    ctx.fillStyle = '#fff'; ctx.fill();
+
+    const statuses = statusOf(prop);
+    ctx.textAlign = 'left';
+    ctx.font = "700 15px Arial"; ctx.fillStyle = '#3F6F5E';
+    ctx.fillText((statuses.join(' / ')||'İlan').toUpperCase(), 100, cardY+50);
+
+    ctx.font = "700 36px Georgia, 'Times New Roman', serif"; ctx.fillStyle = COL_INK;
+    ctx.fillText(`${prop.site||''} ${prop.block||''}`.trim(), 100, cardY+100);
+
+    ctx.font = "500 20px Arial"; ctx.fillStyle = COL_MUTED;
+    ctx.fillText(prop.loc||'', 100, cardY+132);
+
+    const specs = [prop.rooms, prop.floor?(prop.floor==='Bahçe Katı'?'Bahçe Katı':prop.floor+'. Kat'):null].filter(Boolean);
+    let sx = 100;
+    ctx.font = "600 17px Arial";
+    specs.forEach(s=>{
+      const tw = ctx.measureText(s).width + 30;
+      roundRectPath(ctx, sx, cardY+160, tw, 40, 10);
+      ctx.fillStyle = COL_BG; ctx.fill();
+      ctx.fillStyle = COL_INK; ctx.fillText(s, sx+15, cardY+186);
+      sx += tw + 12;
+    });
+
+    ctx.strokeStyle = '#E2DAD2'; ctx.beginPath();
+    ctx.moveTo(100, cardY+232); ctx.lineTo(W-100, cardY+232); ctx.stroke();
+
+    ctx.font = "700 32px 'Courier New', monospace"; ctx.fillStyle = COL_DEEP;
+    ctx.fillText(priceLabel(prop) || '', 100, cardY+280);
+
+    // footer
+    const fg = ctx.createLinearGradient(0,H-140,0,H);
+    fg.addColorStop(0,COL_DEEP); fg.addColorStop(1,COL_DEEP2);
+    ctx.fillStyle = fg; ctx.fillRect(0,H-140,W,140);
+    ctx.textAlign='left';
+    ctx.font = "700 20px Georgia, serif"; ctx.fillStyle='#fff';
+    ctx.fillText('Daruma Gayrimenkul', 60, H-88);
+    ctx.font = "600 12px Arial"; ctx.fillStyle=COL_BRASS;
+    ctx.fillText('GÜVENİN, TAKİBİN VE DOĞRU EŞLEŞMENİN ADRESİ.', 60, H-64);
+    ctx.textAlign='right'; ctx.font = "600 16px 'Courier New', monospace"; ctx.fillStyle='#fff';
+    ctx.fillText('📞 0552 647 27 62', W-60, H-84);
+    ctx.fillText('📞 0530 426 37 85', W-60, H-58);
+
+    return canvas;
+  }
+
+  function wrapCenterText(ctx, text, cx, y, maxWidth, lineHeight){
+    const words = text.split(' ');
+    let line = '', lines = [];
+    words.forEach(w=>{
+      const test = line ? line+' '+w : w;
+      if(ctx.measureText(test).width > maxWidth && line){ lines.push(line); line = w; }
+      else line = test;
+    });
+    if(line) lines.push(line);
+    lines.forEach((l,i)=> ctx.fillText(l, cx, y + i*lineHeight));
+  }
+
+  async function shareAnnouncement(propId){
+    const p = properties.find(x=>x.id===propId);
+    if(!p) return;
+    showToast('Afiş hazırlanıyor...', 3000);
+    let canvas;
+    try{
+      canvas = await generateAnnouncementCanvas(p);
+    }catch(e){
+      showToast('Afiş oluşturulamadı, tekrar dene.');
+      return;
+    }
+    canvas.toBlob(async (blob)=>{
+      if(!blob){ showToast('Afiş oluşturulamadı, tekrar dene.'); return; }
+      const file = new File([blob], `daruma-portfoy-${(p.site||'daire').replace(/\s+/g,'_')}.png`, {type:'image/png'});
+      if(navigator.canShare && navigator.canShare({files:[file]})){
+        try{
+          await navigator.share({files:[file], title:'Yeni Portföy — Daruma Gayrimenkul'});
+        }catch(err){
+          if(err.name !== 'AbortError') showToast('Paylaşım başarısız, tekrar dene.');
+        }
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = file.name;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(()=> URL.revokeObjectURL(url), 5000);
+        showToast('Afiş indirildi.');
+      }
+    }, 'image/png', 0.95);
   }
 
   function sendWhatsapp(clientId){
@@ -1532,7 +1710,7 @@
     renderClientStatusChips();
   });
   function renderClientFeatureChips(){
-    $('c_features_chips').innerHTML = FEATURE_OPTIONS.map(f=>
+    $('c_features_chips').innerHTML = CLIENT_FEATURE_OPTIONS.map(f=>
       `<div class="chip ${selectedClientFeatures.includes(f)?'selected':''}" data-cfeature="${f}">${f}</div>`
     ).join('');
   }
