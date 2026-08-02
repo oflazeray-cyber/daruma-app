@@ -689,7 +689,7 @@
   }
 
   const FLOOR_OPTIONS = ['Bahçe Katı', ...Array.from({length:20},(_,i)=>String(i+1)), '20+'];
-  const FEATURE_OPTIONS = ['Deniz manzaralı','Yan cephe','Güney cephe','Doğu cephe','Batı cephe','Kuzey cephe','Peyzaj manzaralı'];
+  const FEATURE_OPTIONS = ['Farketmez','Deniz manzaralı','Yan cephe','Güney cephe','Doğu cephe','Batı cephe','Kuzey cephe','Peyzaj manzaralı'];
 
   const $ = (id) => document.getElementById(id);
   $('p_floor').innerHTML = FLOOR_OPTIONS.map(f=>`<option value="${f}">${f}</option>`).join('');
@@ -851,8 +851,6 @@
     if(client.rooms && client.rooms !== 'Fark etmez' && client.rooms !== prop.rooms) return null;
     // kat (kesin şart, birden fazla seçim olabilir)
     if(client.floors && client.floors.length && !client.floors.includes(prop.floor)) return null;
-    // vatandaşlık: sadece müşteri özellikle istiyorsa kontrol edilir, aksi halde önemsiz
-    if(client.citizenshipRequired && !prop.citizenshipEligible) return null;
     // site (kesin şart)
     if(client.site && !norm(prop.site).includes(norm(client.site))) return null;
     // blok (kesin şart; virgülle birden fazla blok yazılabilir, herhangi biri eşleşirse yeterli)
@@ -877,8 +875,14 @@
     // durum (satılık/kiralık): müşterinin ilgilendiği durumla dairenin durumu kesişmeli
     const clientStatuses = statusOf(client).length ? statusOf(client) : ['Satılık','Kiralık'];
     const propStatuses = statusOf(prop);
-    const overlapStatuses = propStatuses.filter(s => clientStatuses.includes(s));
+    let overlapStatuses = propStatuses.filter(s => clientStatuses.includes(s));
     if(!overlapStatuses.length) return null;
+    // vatandaşlık: sadece Satılık için anlamlı (vatandaşlık için mülk edinme kiralık dairede söz konusu değil).
+    // müşteri özellikle istiyorsa ve daire uygun değilse, sadece Satılık tarafı elenir — Kiralık ilgisi varsa yine eşleşebilir.
+    if(client.citizenshipRequired && !prop.citizenshipEligible){
+      overlapStatuses = overlapStatuses.filter(s => s !== 'Satılık');
+      if(!overlapStatuses.length) return null;
+    }
     // bütçe + para birimi (kesişen durumlardan en az biri, kendi para biriminde bütçeye uymalı)
     const min = client.min ? Number(client.min) : 0;
     const max = client.max ? Number(client.max) : Infinity;
