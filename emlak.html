@@ -319,6 +319,28 @@
     font-size:11px; background:var(--match-bg); color:var(--match); border:1px solid #C9DBD4;
     padding:2px 8px; border-radius:20px; font-weight:600;
   }
+  .contract-banner{
+    background:#FBF3E3; border:1.5px solid var(--brass); border-radius:14px;
+    padding:14px 16px; margin-bottom:14px;
+  }
+  .contract-banner .cb-title{
+    font-family:var(--font-display); font-weight:700; font-size:14.5px; color:var(--brass-dark); margin-bottom:8px;
+  }
+  .contract-banner .cb-item{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:8px 0; border-top:1px dashed #E3CFA0;
+  }
+  .contract-banner .cb-item:first-of-type{ border-top:none; }
+  .contract-banner .cb-info b{ font-size:13.5px; color:var(--ink); display:block; }
+  .contract-banner .cb-info span{ font-size:12px; color:var(--muted); }
+  .contract-banner .cb-wa{
+    flex:0 0 auto; width:34px; height:34px; border-radius:50%; background:#25D366; color:#fff;
+    display:flex; align-items:center; justify-content:center; font-size:16px; text-decoration:none;
+  }
+  .contract-badge{
+    display:inline-flex; align-items:center; gap:5px; font-size:11px; background:#FBF3E3; color:var(--brass-dark);
+    border:1px solid var(--brass); padding:2px 9px; border-radius:20px; font-weight:600; margin-left:6px;
+  }
   .photo-input-wrap{
     border:1.5px dashed var(--border); border-radius:10px; padding:12px; text-align:center; color:var(--muted); font-size:13px;
   }
@@ -484,6 +506,26 @@
       <div class="chip-wrap" id="p_furnished_chips">
         <div class="chip" data-furnished="Eşyalı">Eşyalı</div>
         <div class="chip" data-furnished="Eşyasız">Eşyasız</div>
+      </div>
+    </div>
+    <div class="field" id="p_contract_wrap">
+      <label style="display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" id="p_rented" style="width:auto;"> Bu daire şu an kiralanmış durumda (kontrat takibi)
+      </label>
+      <div id="p_contract_fields" style="display:none; margin-top:10px;">
+        <div class="row2">
+          <div class="field"><label>Ev sahibi adı (opsiyonel)</label><input id="p_landlord_name" placeholder="Ad Soyad"></div>
+          <div class="field"><label>Ev sahibi telefonu (opsiyonel)</label><input id="p_landlord_phone" placeholder="0532 123 45 67"></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Kiracı adı soyadı (opsiyonel)</label><input id="p_tenant" placeholder="Ad Soyad"></div>
+          <div class="field"><label>Kiracı telefonu (opsiyonel)</label><input id="p_tenant_phone" placeholder="0532 123 45 67"></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Sözleşme başlangıç tarihi</label><input id="p_contract_start" type="date"></div>
+          <div class="field"><label>Süre (ay)</label><input id="p_contract_months" type="number" value="12"></div>
+        </div>
+        <div class="chip-hint" id="p_contract_end_hint"></div>
       </div>
     </div>
     <div class="row2">
@@ -952,15 +994,42 @@
     else renderMatches();
   }
 
+  function expiringContracts(){
+    const THRESH = 45;
+    return properties
+      .map(p => ({ p, end: contractEndOf(p) }))
+      .filter(x => x.end)
+      .map(x => ({ ...x, days: daysUntil(x.end) }))
+      .filter(x => x.days !== null && x.days <= THRESH)
+      .sort((a,b)=> a.days - b.days);
+  }
+  function renderContractBanner(){
+    const items = expiringContracts();
+    if(!items.length) return '';
+    return `<div class="contract-banner">
+      <div class="cb-title">🔔 Sözleşmesi Yaklaşan Daireler (${items.length})</div>
+      ${items.map(({p,end,days})=>`
+        <div class="cb-item">
+          <div class="cb-info">
+            <b>${esc(p.site)} ${esc(p.block)}</b>
+            <span>${p.tenantName? 'Kiracı: '+esc(p.tenantName)+' · ':''}${p.landlordName? 'Ev sahibi: '+esc(p.landlordName)+' · ':''}Bitiş: ${fmtDateTR(end)} · ${days<0? ('Süresi doldu, '+Math.abs(days)+' gün önce') : (days+' gün kaldı')}</span>
+          </div>
+          ${p.landlordPhone? `<a class="cb-wa" href="https://wa.me/${p.landlordPhone.replace(/\D/g,'')}?text=${encodeURIComponent('Merhaba'+(p.landlordName? ' '+p.landlordName:'')+', '+(p.site||'')+' '+(p.block||'')+' dairenizin kira sözleşmesi yakında sona eriyor, durumu konuşabilir miyiz?')}" target="_blank">💬</a>` : ''}
+        </div>
+      `).join('')}
+    </div>`;
+  }
+
   function renderProperties(){
     const q = norm($('searchInput').value);
     let list = properties.slice().reverse();
     if(q) list = list.filter(p => norm(p.site+' '+p.loc+' '+p.block+' '+p.tags).includes(q));
+    const banner = renderContractBanner();
     if(!list.length){
-      mainEl.innerHTML = `<div class="empty"><div class="icon">🏠</div><p>${properties.length? 'Aramanla eşleşen daire yok.' : 'Henüz daire eklemedin. Sağ alttaki + butonuyla ilk daireyi ekle.'}</p></div>`;
+      mainEl.innerHTML = banner + `<div class="empty"><div class="icon">🏠</div><p>${properties.length? 'Aramanla eşleşen daire yok.' : 'Henüz daire eklemedin. Sağ alttaki + butonuyla ilk daireyi ekle.'}</p></div>`;
       return;
     }
-    mainEl.innerHTML = list.map(p=>{
+    mainEl.innerHTML = banner + list.map(p=>{
       const matched = matchingClientsForProp(p);
       const tags = rawTagList(p.tags);
       const extraTags = [p.kitchenType, (p.balcony==='Var'?'Balkonlu':(p.balcony==='Yok'?'Balkonsuz':null))].filter(Boolean);
@@ -971,6 +1040,7 @@
         <h3>${esc(p.site)||'İsimsiz Daire'}</h3>
         <div class="loc">${esc(p.block)? esc(p.block)+' · ':''}${esc(p.loc)||''} · ${esc(p.rooms)} · ${p.floor? (p.floor==='Bahçe Katı'?'Bahçe Katı':p.floor+'. Kat'):''} · ${esc(statusOf(p).join(' / '))}</div>
         ${p.citizenshipEligible? `<div style="margin-bottom:8px;"><span class="citizen-badge">🛂 Vatandaşlığa uygun</span></div>` : ''}
+        ${p.rentedOut && p.contractStart ? (()=>{ const end=contractEndOf(p); const d=daysUntil(end); return `<div style="margin-bottom:8px;"><span class="contract-badge">📅 Sözleşme: ${fmtDateTR(end)} (${d<0? 'süresi doldu' : d+' gün kaldı'})</span></div>`; })() : ''}
         ${(extraTags.length||tags.length)? `<div class="tags">${extraTags.map(t=>`<span>${esc(t)}</span>`).join('')}${tags.map(t=>`<span>${esc(t)}</span>`).join('')}</div>` : ''}
         ${photos.length? `<div class="photo-row">${photos.slice(0,5).map(m=>m.type==='video'?`<video src="${srcOf(m)}" muted></video>`:`<img src="${srcOf(m)}">`).join('')}${photos.length>5?`<div class="more">+${photos.length-5}</div>`:''}</div>` : ''}
         <div class="card-foot">
@@ -1356,6 +1426,15 @@
     $('p_rooms').value = p? p.rooms:'3+1';
     selectedStatuses = p? statusOf(p).slice() : ['Satılık'];
     selectedFurnished = p? furnishedOf(p).slice() : [];
+    $('p_rented').checked = p? !!p.rentedOut : false;
+    $('p_contract_fields').style.display = (p && p.rentedOut) ? '' : 'none';
+    $('p_tenant').value = p? (p.tenantName||'') : '';
+    $('p_tenant_phone').value = p? (p.tenantPhone||'') : '';
+    $('p_landlord_name').value = p? (p.landlordName||'') : '';
+    $('p_landlord_phone').value = p? (p.landlordPhone||'') : '';
+    $('p_contract_start').value = p? (p.contractStart||'') : '';
+    $('p_contract_months').value = p? (p.contractMonths||12) : 12;
+    updateContractEndHint();
     renderStatusChips();
     $('p_floor').value = p? (p.floor||'1') : '1';
     $('p_citizenship').checked = p? !!p.citizenshipEligible : false;
@@ -1387,10 +1466,49 @@
     $('p_price_sale_wrap').style.display = selectedStatuses.includes('Satılık') ? '' : 'none';
     $('p_price_rent_wrap').style.display = selectedStatuses.includes('Kiralık') ? '' : 'none';
     $('p_furnished_wrap').style.display = selectedStatuses.includes('Kiralık') ? '' : 'none';
+    $('p_contract_wrap').style.display = selectedStatuses.includes('Kiralık') ? '' : 'none';
     $('p_furnished_chips').querySelectorAll('[data-furnished]').forEach(chip=>{
       chip.classList.toggle('selected', selectedFurnished.includes(chip.dataset.furnished));
     });
   }
+  // ---------- Kira sözleşmesi bitiş tarihi hesaplama ----------
+  function addMonths(dateStr, months){
+    const d = new Date(dateStr+'T00:00:00');
+    if(isNaN(d)) return null;
+    d.setMonth(d.getMonth() + (Number(months)||0));
+    return d;
+  }
+  function fmtDateTR(d){
+    if(!d) return '';
+    return d.toLocaleDateString('tr-TR', {day:'2-digit', month:'2-digit', year:'numeric'});
+  }
+  function daysUntil(d){
+    if(!d) return null;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const target = new Date(d); target.setHours(0,0,0,0);
+    return Math.round((target - today) / (1000*60*60*24));
+  }
+  function contractEndOf(prop){
+    if(!prop || !prop.rentedOut || !prop.contractStart) return null;
+    return addMonths(prop.contractStart, prop.contractMonths || 12);
+  }
+  function updateContractEndHint(){
+    const start = $('p_contract_start').value;
+    const months = $('p_contract_months').value;
+    const hint = $('p_contract_end_hint');
+    if(start){
+      const end = addMonths(start, months);
+      hint.textContent = `Sözleşme bitiş tarihi: ${fmtDateTR(end)} — bitmesine ${daysUntil(end)} gün kala uygulama seni uyaracak.`;
+    } else {
+      hint.textContent = 'Başlangıç tarihini gir, bitiş tarihi otomatik hesaplansın.';
+    }
+  }
+  $('p_rented').addEventListener('change', ()=>{
+    $('p_contract_fields').style.display = $('p_rented').checked ? '' : 'none';
+    updateContractEndHint();
+  });
+  $('p_contract_start').addEventListener('input', updateContractEndHint);
+  $('p_contract_months').addEventListener('input', updateContractEndHint);
   $('p_furnished_chips').addEventListener('click', (e)=>{
     const chip = e.target.closest('[data-furnished]');
     if(!chip) return;
@@ -1551,6 +1669,13 @@
       kdvSale: selectedStatuses.includes('Satılık') ? $('p_kdv_sale').checked : false,
       kdvRent: selectedStatuses.includes('Kiralık') ? $('p_kdv_rent').checked : false,
       furnished: selectedStatuses.includes('Kiralık') ? selectedFurnished.slice() : [],
+      rentedOut: selectedStatuses.includes('Kiralık') ? $('p_rented').checked : false,
+      tenantName: selectedStatuses.includes('Kiralık') ? $('p_tenant').value.trim() : '',
+      tenantPhone: selectedStatuses.includes('Kiralık') ? $('p_tenant_phone').value.trim() : '',
+      landlordName: selectedStatuses.includes('Kiralık') ? $('p_landlord_name').value.trim() : '',
+      landlordPhone: selectedStatuses.includes('Kiralık') ? $('p_landlord_phone').value.trim() : '',
+      contractStart: (selectedStatuses.includes('Kiralık') && $('p_rented').checked) ? $('p_contract_start').value : '',
+      contractMonths: (selectedStatuses.includes('Kiralık') && $('p_rented').checked) ? (Number($('p_contract_months').value)||12) : 12,
       currencySale: selectedStatuses.includes('Satılık') ? $('p_currency_sale').value : '',
       currencyRent: selectedStatuses.includes('Kiralık') ? $('p_currency_rent').value : '',
       tags: selectedPropFeatures.slice(),
