@@ -576,10 +576,10 @@
       <div class="chip-hint">Birden fazla blok seçimi yapabilirsiniz, virgülle (,) ayırınız.</div>
     </div>
     </div>
-    <div class="field"><label>Oda sayısı</label>
-      <select id="c_rooms">
-        <option>Fark etmez</option><option>1+1</option><option>1,5+1</option><option>2+1</option><option>2,5+1</option><option selected>3+1</option><option>3,5+1</option><option>4+1</option><option>4,5+1</option><option>5+1</option><option>5,5+1</option><option>6+1</option><option>6,5+1</option><option>7+1</option><option>7,5+1</option><option>8+1</option><option>8,5+1</option><option>9+1</option><option>9,5+1</option><option>10+1</option>
-      </select>
+    <div class="field">
+      <label>Oda sayısı (birden fazla seçilebilir)</label>
+      <div class="chip-wrap" id="c_rooms_chips"></div>
+      <div class="chip-hint">Hiçbiri seçilmezse oda sayısı fark etmez.</div>
     </div>
     <div class="field">
       <label>Kabul ettiği katlar (opsiyonel, birden fazla seçebilirsin)</label>
@@ -671,6 +671,7 @@
   let selectedBalcony = '';
   let openClientId = null;
   let selectedClientFloors = [];
+  let selectedClientRooms = [];
   let selectedClientStatuses = [];
   let selectedClientFeatures = [];
   let editingClientHiddenPhone = null;
@@ -731,6 +732,7 @@
   }
 
   const FLOOR_OPTIONS = ['Bahçe Katı', ...Array.from({length:20},(_,i)=>String(i+1)), '20+'];
+  const ROOM_OPTIONS = ['1+1','1,5+1','2+1','2,5+1','3+1','3,5+1','4+1','4,5+1','5+1','5,5+1','6+1','6,5+1','7+1','7,5+1','8+1','8,5+1','9+1','9,5+1','10+1'];
   const FEATURE_OPTIONS = ['Deniz manzaralı','Yan cephe','Güney cephe','Doğu cephe','Batı cephe','Kuzey cephe','Peyzaj manzaralı'];
   const CLIENT_FEATURE_OPTIONS = ['Farketmez', ...FEATURE_OPTIONS];
 
@@ -890,8 +892,9 @@
 
   function matchScore(client, prop){
     // ================= ANA KRİTERLER (kesin şart — belirtilmişse uymazsa eşleşme hiç çıkmaz, boş/Farketmez ise engellemez) =================
-    // oda sayısı
-    if(client.rooms && client.rooms !== 'Fark etmez' && client.rooms !== prop.rooms) return null;
+    // oda sayısı (kesin şart, birden fazla seçim olabilir; hiçbiri seçilmemişse fark etmez)
+    const wantedRooms = Array.isArray(client.rooms) ? client.rooms : (client.rooms && client.rooms!=='Fark etmez' ? [client.rooms] : []);
+    if(wantedRooms.length && !wantedRooms.includes(prop.rooms)) return null;
     // kat (kesin şart, birden fazla seçim olabilir)
     if(client.floors && client.floors.length && !client.floors.includes(prop.floor)) return null;
     // site (kesin şart)
@@ -1069,7 +1072,8 @@
     mainEl.innerHTML = list.map(c=>{
       const m = matchesForClient(c);
       const floorLabel = (c.floors&&c.floors.length) ? c.floors.map(f=>f==='Bahçe Katı'?f:f+'.Kat').join('/') : null;
-      const crit = [c.rooms, (c.site||null), (c.block||null), floorLabel, `${c.min?fmtPrice(c.min):'0'}–${c.max?fmtPrice(c.max):'∞'} ${c.currency}`, (c.citizenshipRequired?'🛂 Vatandaşlık şartı':null)].filter(Boolean);
+      const roomsLabel = Array.isArray(c.rooms) ? (c.rooms.length? c.rooms.join(', ') : null) : (c.rooms && c.rooms!=='Fark etmez' ? c.rooms : null);
+      const crit = [roomsLabel, (c.site||null), (c.block||null), floorLabel, `${c.min?fmtPrice(c.min):'0'}–${c.max?fmtPrice(c.max):'∞'} ${c.currency}`, (c.citizenshipRequired?'🛂 Vatandaşlık şartı':null)].filter(Boolean);
       const wanted = rawTagList(c.tags);
       const isOpen = openClientId === c.id;
       const ownerC = isClientOwner(c);
@@ -1323,38 +1327,28 @@
     if(bgImg) ctx.drawImage(bgImg, 0, 0, W, H);
     else { ctx.fillStyle = '#3a0d16'; ctx.fillRect(0,0,W,H); }
 
-    // Site + Blok (koyu zeminin altındaki boşlukta, panelin hemen üstünde)
+    const fields = [
+      {label:'SİTE İSMİ', value: prop.site || ''},
+      {label:'BLOK',      value: prop.block || ''},
+      {label:'ODA SAYISI', value: prop.rooms || ''},
+      {label:'CEPHE / MANZARA', value: (rawTagList(prop.tags)||[]).join(', ')},
+      {label:'KAT', value: prop.floor==='Bahçe Katı' ? 'Bahçe Katı' : (prop.floor ? prop.floor+'. Kat' : '')}
+    ];
+    const boxTop = 590, boxBottom = 1112, boxLeft = 120;
+    const rowH = (boxBottom - boxTop) / fields.length;
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#E7BE7C';
-    ctx.font = "700 " + Math.round(30*scale) + "px Georgia, 'Times New Roman', serif";
-    const siteBlok = `${prop.site||''}${prop.block? ' · '+prop.block : ''}`.trim().toUpperCase();
-    wrapText(ctx, siteBlok || 'YENİ PORTFÖY', 64*scale, 905*scale, 820*scale, 36*scale, 1);
-
-    // Oda sayısı değeri (panel içindeki ilk noktalı çizginin altına)
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#241512';
-    ctx.font = "700 " + Math.round(28*scale) + "px Georgia, 'Times New Roman', serif";
-    ctx.fillText(prop.rooms || '', 166*scale, 1158*scale);
-
-    // Konum
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#4a3a2c';
-    ctx.font = "500 " + Math.round(23*scale) + "px Arial";
-    wrapText(ctx, prop.loc || '', 90*scale, 1300*scale, 350*scale, 30*scale, 2);
-
-    // Bölge avantajları (dairenin açıklaması varsa onu, yoksa genel bir cümle)
-    const bolge = (prop.desc && prop.desc.trim())
-      ? prop.desc.trim()
-      : `${prop.site||'Bu proje'} konumu ve sosyal imkânlarıyla öne çıkan bir seçenek.`;
-    ctx.font = "500 " + Math.round(21*scale) + "px Arial";
-    ctx.fillStyle = '#4a3a2c';
-    wrapText(ctx, bolge, 510*scale, 1300*scale, 340*scale, 30*scale, 3);
-
-    // Fiyat
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#3a0d16';
-    ctx.font = "700 " + Math.round(34*scale) + "px 'Courier New', monospace";
-    ctx.fillText(priceLabel(prop) || '', 250*scale, 1480*scale);
+    fields.forEach((f,i)=>{
+      const y = (boxTop + rowH*(i+0.62)) * scale;
+      const x = boxLeft * scale;
+      ctx.font = '700 ' + Math.round(23*scale) + 'px Arial';
+      ctx.fillStyle = '#96701F';
+      const labelText = f.label + ':  ';
+      ctx.fillText(labelText, x, y);
+      const w = ctx.measureText(labelText).width;
+      ctx.font = "700 " + Math.round(28*scale) + "px Georgia, 'Times New Roman', serif";
+      ctx.fillStyle = '#241512';
+      ctx.fillText(f.value, x + w, y);
+    });
 
     return canvas;
   }
@@ -1703,6 +1697,7 @@
       } else {
         showToast('Daire kaydedildi. Şu an kriterlerine uyan müşteri yok.');
       }
+      shareAnnouncement(p.id);
     } else {
       showToast('Daire güncellendi.');
     }
@@ -1720,7 +1715,11 @@
     $('c_phone').placeholder = (c && !ownerC) ? '🔒 Gizli — sadece ekleyen kişi görebilir' : 'Tel no';
     $('c_site').value = c? c.site:'';
     $('c_block').value = c? c.block:'';
-    $('c_rooms').value = c? c.rooms:'3+1';
+    if(c && Array.isArray(c.rooms)) selectedClientRooms = c.rooms.slice();
+    else if(c && c.rooms && c.rooms !== 'Fark etmez') selectedClientRooms = [c.rooms];
+    else if(c) selectedClientRooms = [];
+    else selectedClientRooms = ['3+1'];
+    renderRoomChips();
     $('c_min').value = c? c.min:'';
     $('c_max').value = c? c.max:'';
     $('c_currency').value = c? c.currency:'USD';
@@ -1739,6 +1738,19 @@
     $('clientOverlay').classList.add('open');
   }
 
+  function renderRoomChips(){
+    $('c_rooms_chips').innerHTML = ROOM_OPTIONS.map(r=>
+      `<div class="chip ${selectedClientRooms.includes(r)?'selected':''}" data-room="${r}">${r}</div>`
+    ).join('');
+  }
+  $('c_rooms_chips').addEventListener('click', (e)=>{
+    const chip = e.target.closest('[data-room]');
+    if(!chip) return;
+    const r = chip.dataset.room;
+    if(selectedClientRooms.includes(r)) selectedClientRooms = selectedClientRooms.filter(x=>x!==r);
+    else selectedClientRooms.push(r);
+    renderRoomChips();
+  });
   function renderFloorChips(){
     $('c_floor_chips').innerHTML = FLOOR_OPTIONS.map(f=>
       `<div class="chip ${selectedClientFloors.includes(f)?'selected':''}" data-floor="${f}">${f}</div>`
@@ -1794,7 +1806,7 @@
       phone: phoneVal,
       site: $('c_site').value.trim(),
       block: $('c_block').value.trim(),
-      rooms: $('c_rooms').value,
+      rooms: selectedClientRooms.slice(),
       floors: selectedClientFloors.slice(),
       min: $('c_min').value,
       max: $('c_max').value,
