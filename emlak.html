@@ -571,10 +571,12 @@
     <div class="field"><label>Ad Soyad</label><input id="c_name" placeholder="Müşteri adı soyadı"></div>
     <div class="field"><label>Telefon</label><input id="c_phone" placeholder="Tel no"></div>
     <div class="row2">
-      <div class="field"><label>Aranan site (opsiyonel)</label><input id="c_site" placeholder="Boş = fark etmez"></div>
+      <div class="field"><label>Aranan site (opsiyonel)</label><input id="c_site" placeholder="Boş=fark etmez, birden fazlaysa virgülle: Büyükyalı, Yedi Mavi">
+      <div class="chip-hint">Birden fazla site seçimi yapabilirsiniz, virgülle (,) ayırınız.</div>
+      </div>
       <div class="field"><label>Aranan blok (opsiyonel)</label><input id="c_block" placeholder="Boş=fark etmez, birden fazlaysa virgülle: A, C, 12">
       <div class="chip-hint">Birden fazla blok seçimi yapabilirsiniz, virgülle (,) ayırınız.</div>
-    </div>
+      </div>
     </div>
     <div class="field">
       <label>Oda sayısı (birden fazla seçilebilir)</label>
@@ -897,8 +899,12 @@
     if(wantedRooms.length && !wantedRooms.includes(prop.rooms)) return null;
     // kat (kesin şart, birden fazla seçim olabilir)
     if(client.floors && client.floors.length && !client.floors.includes(prop.floor)) return null;
-    // site (kesin şart)
-    if(client.site && !norm(prop.site).includes(norm(client.site))) return null;
+    // site (kesin şart; virgülle birden fazla site yazılabilir, herhangi biri eşleşirse yeterli)
+    if(client.site){
+      const wantedSites = tagList(client.site);
+      const propSite = norm(prop.site);
+      if(wantedSites.length && !wantedSites.some(s => propSite.includes(s))) return null;
+    }
     // blok (kesin şart; virgülle birden fazla blok yazılabilir, herhangi biri eşleşirse yeterli)
     if(client.block){
       const wantedBlocks = tagList(client.block);
