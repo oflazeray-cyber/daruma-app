@@ -2132,15 +2132,29 @@
   });
 
   // ---------- HIZLI ARAMA KAYDI ----------
-  function openQuickCallOverlay(){
-    $('qc_phone').value = '';
-    $('qc_name').value = '';
+  function openQuickCallOverlay(prefill){
+    $('qc_phone').value = (prefill && prefill.phone) || '';
+    $('qc_name').value = (prefill && prefill.name) || '';
     $('qc_notes').value = '';
     $('quickCallOverlay').classList.add('open');
-    tryPasteClipboardToPhone();
+    if(!prefill || !prefill.phone) tryPasteClipboardToPhone();
   }
-  $('quickCallBtn').addEventListener('click', openQuickCallOverlay);
+  $('quickCallBtn').addEventListener('click', ()=> openQuickCallOverlay());
   $('qcCancel').addEventListener('click', ()=> $('quickCallOverlay').classList.remove('open'));
+
+  // Kısayol/Paylaş menüsünden gelen numara: ?tel=05xx...&isim=Ahmet
+  function checkPendingQuickCallFromURL(){
+    const params = new URLSearchParams(window.location.search);
+    const tel = params.get('tel') || params.get('telefon') || params.get('phone');
+    const isim = params.get('isim') || params.get('name') || '';
+    if(tel){
+      openQuickCallOverlay({ phone: tel, name: isim });
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+      return true;
+    }
+    return false;
+  }
 
   async function tryPasteClipboardToPhone(){
     try{
@@ -2266,6 +2280,7 @@
     CURRENT_USER = name;
     hideIdScreen();
     render();
+    checkPendingQuickCallFromURL();
   }
 
   async function handleIdSave(){
@@ -2467,6 +2482,7 @@
   });
 
   if(!CURRENT_USER){ showIdScreen(false); }
+  else { checkPendingQuickCallFromURL(); }
 
 })();
 </script>
