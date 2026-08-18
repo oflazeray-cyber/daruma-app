@@ -402,6 +402,7 @@
     font-size:15px; margin-bottom:10px; font-family:var(--font-body); box-sizing:border-box;
   }
   .lock-error{color:var(--danger); font-size:12.5px; min-height:16px; margin-top:8px;}
+  .lock-info{color:var(--match); font-size:12.5px; margin-top:6px; line-height:1.5;}
   .lock-link-btn{
     background:none; border:none; color:var(--brass-dark); font-size:12.5px;
     text-decoration:underline; margin-top:12px; cursor:pointer; font-family:var(--font-body);
@@ -415,6 +416,10 @@
     font-size:10.5px; background:var(--danger-bg); color:var(--danger); padding:2px 7px;
     border-radius:20px; font-family:var(--font-mono);
   }
+  .admin-user-row .au-pending-badge{
+    font-size:10.5px; background:var(--match-bg); color:var(--match); padding:2px 7px;
+    border-radius:20px; font-family:var(--font-mono);
+  }
   .admin-user-row input{
     flex:1; padding:7px 9px; border-radius:8px; border:1px solid var(--border); font-size:12.5px;
   }
@@ -422,6 +427,7 @@
     padding:7px 10px; border-radius:8px; border:none; background:var(--deep); color:#fff;
     font-size:12px; cursor:pointer;
   }
+  .admin-user-row button.danger{background:var(--danger);}
 
   /* toast */
   .toast{
@@ -438,7 +444,7 @@
 <div class="lockscreen" id="idScreen">
   <div class="lock-box">
     <h2>Merhaba 👋</h2>
-    <p class="lock-sub">Ad soyad ve şifreni gir. Kayıtlı değilsen otomatik hesap oluşturulur.</p>
+    <p class="lock-sub">Ad soyad ve şifreni gir. Kayıtlı değilsen hesap oluşturulur, admin onayından sonra giriş yapabilirsin.</p>
     <input type="text" id="idInput" placeholder="Ad Soyad" autocomplete="off">
     <input type="password" id="idPassword" placeholder="Şifre" autocomplete="off" style="margin-top:8px;">
     <button class="btn primary" id="idBtn" style="width:100%;margin-top:10px;">Giriş Yap</button>
@@ -2142,12 +2148,20 @@
       const snap = await docRef.get();
       const hash = await hashPassword(password);
       if(!snap.exists){
-        await docRef.set({ id: uname, fullName: name, passwordHash: hash, createdAt: Date.now(), resetRequested: false });
-        loginSuccess(name);
+        const approved = isAdmin(name);
+        await docRef.set({ id: uname, fullName: name, passwordHash: hash, createdAt: Date.now(), resetRequested: false, approved });
+        if(approved){
+          loginSuccess(name);
+        } else {
+          $('idPassword').value = '';
+          $('idInfo').textContent = 'Hesabın oluşturuldu. Admin onayladıktan sonra giriş yapabilirsin.';
+        }
       } else {
         const data = snap.data();
         if(hash !== data.passwordHash){
           $('idError').textContent = 'Yanlış şifre.';
+        } else if(data.approved === false){
+          $('idError').textContent = 'Hesabın henüz admin tarafından onaylanmadı.';
         } else {
           if(data.resetRequested) await docRef.update({ resetRequested: false });
           loginSuccess(data.fullName || name);
@@ -2234,23 +2248,74 @@
     wrap.innerHTML = '<div style="font-size:12.5px;color:var(--muted);">Yükleniyor...</div>';
     try{
       const snap = await fsDb.collection('users').get();
-      const users = snap.docs.map(d=>d.data()).sort((a,b)=>(a.fullName||'').localeCompare(b.fullName||'','tr'));
-      wrap.innerHTML = users.map(u=>`
+      const users = snap.docs.map(d=>d.data()).sort((a,b)=>{
+        const pa = a.approved===false?0:1, pb = b.approved===false?0:1;
+        if(pa!==pb) return pa-pb;
+        return (a.fullName||'').localeCompare(b.fullName||'','tr');
+      });
+      wrap.innerHTML = users.map(u=>{
+        const pending = u.approved === false;
+        return `
         <div class="admin-user-row" data-uid="${esc(u.id)}">
-          <div class="au-name">${esc(u.fullName)}${u.resetRequested? ' <span class="au-reset-badge">🔔 Şifre talebi</span>':''}</div>
-          <input type="text" placeholder="Yeni şifre (en az 4 karakter)" data-newpw>
-          <button data-set-pw>Şifre Belirle</button>
-        </div>
-      `).join('') || '<div style="font-size:12.5px;color:var(--muted);">Kullanıcı yok.</div>';
+          <div class="au-name">${esc(u.fullName)}${pending? ' <span class="au-pending-badge">⏳ Onay bekliyor</span>':''}${u.resetRequested? ' <span class="au-reset-badge">🔔 Şifre talebi</span>':''}</div>
+          ${pending? `
+            <button data-approve>✅ Onayla</button>
+            <button data-reject class="danger">🗑 Reddet</button>
+          ` : `
+            <input type="text" placeholder="Yeni şifre (en az 4 karakter)" data-newpw>
+            <button data-set-pw>Şifre Belirle</button>
+            <button data-delete-user class="danger">🗑 Sil</button>
+          `}
+        </div>`;
+      }).join('') || '<div style="font-size:12.5px;color:var(--muted);">Kullanıcı yok.</div>';
     }catch(e){
       console.error(e);
       wrap.innerHTML = '<div style="font-size:12.5px;color:var(--danger);">Kullanıcılar yüklenemedi.</div>';
     }
   }
   $('acct_admin_users').addEventListener('click', async (e)=>{
-    const btn = e.target.closest('[data-set-pw]');
-    if(!btn) return;
-    const row = btn.closest('.admin-user-row');
+    const approveBtn = e.target.closest('[data-approve]');
+    const rejectBtn = e.target.closest('[data-reject]');
+    const deleteBtn = e.target.closest('[data-delete-user]');
+    const setPwBtn = e.target.closest('[data-set-pw]');
+    if(approveBtn){
+      const uid = approveBtn.closest('.admin-user-row').dataset.uid;
+      try{
+        await fsDb.collection('users').doc(uid).update({ approved: true });
+        showToast('Kullanıcı onaylandı.');
+        loadAdminUsersPanel();
+      }catch(e){ console.error(e); showToast('Onaylanamadı.'); }
+      return;
+    }
+    if(rejectBtn){
+      const row = rejectBtn.closest('.admin-user-row');
+      const uid = row.dataset.uid;
+      if(!confirm('Bu kayıt talebini silmek istediğine emin misin?')) return;
+      try{
+        await fsDb.collection('users').doc(uid).delete();
+        showToast('Kayıt talebi silindi.');
+        loadAdminUsersPanel();
+      }catch(e){ console.error(e); showToast('Silinemedi.'); }
+      return;
+    }
+    if(deleteBtn){
+      const row = deleteBtn.closest('.admin-user-row');
+      const uid = row.dataset.uid;
+      if(uid === normalizeUsername(CURRENT_USER)){
+        showToast('Kendi hesabını buradan silemezsin.');
+        return;
+      }
+      const uname = row.querySelector('.au-name').textContent.trim();
+      if(!confirm(`"${uname}" kullanıcısını tamamen silmek istediğine emin misin? Bu kullanıcı bir sonraki girişte yeniden kayıt olmak zorunda kalır.`)) return;
+      try{
+        await fsDb.collection('users').doc(uid).delete();
+        showToast('Kullanıcı silindi.');
+        loadAdminUsersPanel();
+      }catch(e){ console.error(e); showToast('Silinemedi.'); }
+      return;
+    }
+    if(!setPwBtn) return;
+    const row = setPwBtn.closest('.admin-user-row');
     const uid = row.dataset.uid;
     const input = row.querySelector('[data-newpw]');
     const newPw = input.value;
