@@ -199,6 +199,11 @@
     font-size:12.5px; color:var(--match); line-height:1.5;
   }
   .match-names b{color:var(--ink);}
+  .prop-desc{
+    margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);
+    font-size:12.5px; color:var(--muted); line-height:1.5;
+  }
+  .prop-desc b{color:var(--ink);}
 
   /* ---- CLIENT CARD ---- */
   .client-card{
@@ -819,6 +824,7 @@
   let selectedClientFeatures = [];
   let editingClientHiddenPhone = null;
   function isClientOwner(c){ return isAdmin(CURRENT_USER) || !c || !c.createdBy || c.createdBy === CURRENT_USER; }
+  function isPropertyOwner(p){ return isAdmin(CURRENT_USER) || !p || !p.createdBy || p.createdBy === CURRENT_USER; }
 
   function mediaOf(rec){
     if(rec.media) return rec.media;
@@ -1199,7 +1205,8 @@
         ${p.citizenshipEligible? `<div style="margin-bottom:8px;"><span class="citizen-badge">🛂 Vatandaşlığa uygun</span></div>` : ''}
         ${p.rentedOut && p.contractStart ? (()=>{ const end=contractEndOf(p); const d=daysUntil(end); return `<div style="margin-bottom:8px;"><span class="contract-badge">📅 Sözleşme: ${fmtDateTR(end)} (${d<0? 'süresi doldu' : d+' gün kaldı'})</span></div>`; })() : ''}
         ${(extraTags.length||tags.length)? `<div class="tags">${extraTags.map(t=>`<span>${esc(t)}</span>`).join('')}${tags.map(t=>`<span>${esc(t)}</span>`).join('')}</div>` : ''}
-        ${photos.length? `<div class="photo-row">${photos.slice(0,5).map(m=>m.type==='video'?`<video src="${srcOf(m)}" muted></video>`:`<img src="${srcOf(m)}">`).join('')}${photos.length>5?`<div class="more">+${photos.length-5}</div>`:''}</div>` : ''}
+        ${(photos.length? `<div class="photo-row">${photos.slice(0,5).map(m=>m.type==='video'?`<video src="${srcOf(m)}" muted></video>`:`<img src="${srcOf(m)}">`).join('')}${photos.length>5?`<div class="more">+${photos.length-5}</div>`:''}</div>` : '')}
+        ${(p.desc && isPropertyOwner(p))? `<div class="prop-desc"><b>Açıklama:</b> ${esc(p.desc)}</div>` : ''}
         <div class="card-foot">
           <div class="stamp">${priceLabel(p)}</div>
           <div class="card-actions">
@@ -1682,7 +1689,10 @@
     renderKitchenChips();
     selectedBalcony = p? (p.balcony || '') : '';
     renderBalconyChips();
-    $('p_desc').value = p? p.desc:'';
+    const canSeeDesc = !p || isPropertyOwner(p);
+    $('p_desc').value = canSeeDesc ? (p? p.desc:'') : '';
+    $('p_desc').placeholder = canSeeDesc ? 'Ek notlar...' : '🔒 Bu açıklamayı sadece ekleyen kişi ve admin görebilir/değiştirebilir';
+    $('p_desc').disabled = !canSeeDesc;
     pendingMedia = p? mediaOf(p).slice() : [];
     $('p_photos').value = '';
     renderThumbs();
@@ -1912,8 +1922,9 @@
       tags: selectedPropFeatures.slice(),
       kitchenType: selectedKitchen,
       balcony: selectedBalcony,
-      desc: $('p_desc').value.trim(),
+      desc: (editingPropId && !isPropertyOwner(properties.find(x=>x.id===editingPropId))) ? (properties.find(x=>x.id===editingPropId)||{}).desc || '' : $('p_desc').value.trim(),
       media: finalMedia,
+      createdBy: editingPropId ? ((properties.find(x=>x.id===editingPropId)||{}).createdBy || CURRENT_USER) : CURRENT_USER,
       createdAt: editingPropId ? (properties.find(x=>x.id===editingPropId)||{}).createdAt || Date.now() : Date.now()
     };
     if(editingPropId){
