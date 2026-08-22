@@ -643,6 +643,11 @@
       <label>Cephe / Manzara / Özellikler</label>
       <div class="chip-wrap" id="p_features_chips"></div>
     </div>
+    <div class="row2">
+      <div class="field"><label>Mal Sahibi Adı Soyadı (opsiyonel)</label><input id="p_owner_name" placeholder="Ad Soyad"></div>
+      <div class="field"><label>Mal Sahibi Telefonu (opsiyonel)</label><input id="p_owner_phone" placeholder="0532 123 45 67"></div>
+    </div>
+    <div class="lock-sub" style="text-align:left;margin:-8px 0 14px;">🔒 Mal sahibi bilgisi sadece admin ve bu daireyi ekleyen kişi tarafından görülebilir.</div>
     <div class="field"><label>Açıklama (opsiyonel)</label><textarea id="p_desc" placeholder="Ek notlar..."></textarea></div>
     <div class="field">
       <label>Fotoğraf &amp; Video (en fazla 60 adet)</label>
@@ -1207,6 +1212,7 @@
         ${(extraTags.length||tags.length)? `<div class="tags">${extraTags.map(t=>`<span>${esc(t)}</span>`).join('')}${tags.map(t=>`<span>${esc(t)}</span>`).join('')}</div>` : ''}
         ${(photos.length? `<div class="photo-row">${photos.slice(0,5).map(m=>m.type==='video'?`<video src="${srcOf(m)}" muted></video>`:`<img src="${srcOf(m)}">`).join('')}${photos.length>5?`<div class="more">+${photos.length-5}</div>`:''}</div>` : '')}
         ${(p.desc && isPropertyOwner(p))? `<div class="prop-desc"><b>Açıklama:</b> ${esc(p.desc)}</div>` : ''}
+        ${((p.ownerName||p.ownerPhone) && isPropertyOwner(p))? `<div class="prop-desc"><b>Mal Sahibi:</b> ${esc(p.ownerName)||'—'}${p.ownerPhone? ' · '+esc(p.ownerPhone):''}</div>` : ''}
         <div class="card-foot">
           <div class="stamp">${priceLabel(p)}</div>
           <div class="card-actions">
@@ -1690,6 +1696,12 @@
     selectedBalcony = p? (p.balcony || '') : '';
     renderBalconyChips();
     const canSeeDesc = !p || isPropertyOwner(p);
+    $('p_owner_name').value = canSeeDesc ? (p? (p.ownerName||'') : '') : '';
+    $('p_owner_phone').value = canSeeDesc ? (p? (p.ownerPhone||'') : '') : '';
+    $('p_owner_name').disabled = !canSeeDesc;
+    $('p_owner_phone').disabled = !canSeeDesc;
+    $('p_owner_name').placeholder = canSeeDesc ? 'Ad Soyad' : '🔒 Sadece ekleyen kişi ve admin görebilir';
+    $('p_owner_phone').placeholder = canSeeDesc ? '0532 123 45 67' : '🔒 Sadece ekleyen kişi ve admin görebilir';
     $('p_desc').value = canSeeDesc ? (p? p.desc:'') : '';
     $('p_desc').placeholder = canSeeDesc ? 'Ek notlar...' : '🔒 Bu açıklamayı sadece ekleyen kişi ve admin görebilir/değiştirebilir';
     $('p_desc').disabled = !canSeeDesc;
@@ -1923,6 +1935,8 @@
       kitchenType: selectedKitchen,
       balcony: selectedBalcony,
       desc: (editingPropId && !isPropertyOwner(properties.find(x=>x.id===editingPropId))) ? (properties.find(x=>x.id===editingPropId)||{}).desc || '' : $('p_desc').value.trim(),
+      ownerName: (editingPropId && !isPropertyOwner(properties.find(x=>x.id===editingPropId))) ? (properties.find(x=>x.id===editingPropId)||{}).ownerName || '' : $('p_owner_name').value.trim(),
+      ownerPhone: (editingPropId && !isPropertyOwner(properties.find(x=>x.id===editingPropId))) ? (properties.find(x=>x.id===editingPropId)||{}).ownerPhone || '' : $('p_owner_phone').value.trim(),
       media: finalMedia,
       createdBy: editingPropId ? ((properties.find(x=>x.id===editingPropId)||{}).createdBy || CURRENT_USER) : CURRENT_USER,
       createdAt: editingPropId ? (properties.find(x=>x.id===editingPropId)||{}).createdAt || Date.now() : Date.now()
