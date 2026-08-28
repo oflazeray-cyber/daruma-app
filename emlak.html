@@ -891,7 +891,7 @@
 <div class="overlay" id="announceMatchesOverlay">
   <div class="sheet">
     <div class="grabber"></div>
-    <h2>🔑 Bu Daireyle Eşleşen Müşteriler</h2>
+    <h2 id="announceMatchesTitle">🔑 Bu Daireyle Eşleşen Müşteriler</h2>
     <p class="lock-sub" style="text-align:left;margin:-8px 0 14px;">Bir müşteriye bas: afiş fotoğrafı hazırlanıp indirilecek ve o müşterinin WhatsApp sohbeti hazır mesajla açılacak — fotoğrafı sohbette 📎 ile eklemen yeterli.</p>
     <div id="announceMatchesList"></div>
     <div class="sheet-actions">
@@ -1755,12 +1755,6 @@
     if(announceP){ shareAnnouncement(announceP.dataset.announceProp); return; }
     const notifyMatches = e.target.closest('[data-notify-matches]');
     if(notifyMatches){ openAnnounceMatchesOverlay(notifyMatches.dataset.notifyMatches); return; }
-    const announceSend = e.target.closest('[data-announce-send]');
-    if(announceSend){
-      const [propId, clientId] = announceSend.dataset.announceSend.split(':');
-      sendAnnounceToClient(propId, clientId);
-      return;
-    }
     const delP = e.target.closest('[data-del-prop]');
     if(delP){
       if(confirm('Bu daireyi silmek istediğine emin misin?')){
@@ -2096,35 +2090,52 @@
   }
 
   // ---------- YENİ DAİREYİ EŞLEŞEN MÜŞTERİLERE BİLDİRME ----------
-  function openAnnounceMatchesOverlay(propId){
+  function openAnnounceMatchesOverlay(propId, onlyClientIds, reasonByClientId){
     const p = properties.find(x=>x.id===propId);
     if(!p) return;
-    const matched = matchingClientsForProp(p).filter(isClientOwner);
+    let matched = matchingClientsForProp(p).filter(isClientOwner);
+    if(onlyClientIds){
+      const idSet = new Set(onlyClientIds);
+      matched = matched.filter(c=>idSet.has(c.id));
+    }
     const list = $('announceMatchesList');
+    $('announceMatchesTitle').textContent = onlyClientIds ? '🔑 Bilgilendirilebilecek Müşteriler' : '🔑 Bu Daireyle Eşleşen Müşteriler';
     if(!matched.length){
       list.innerHTML = `<div style="font-size:12.5px;color:var(--muted);padding:10px 0;">Şu an bu daireyle eşleşen (senin eklediğin) müşteri yok.</div>`;
     } else {
-      list.innerHTML = matched.map(c=>`
+      list.innerHTML = matched.map(c=>{
+        const reason = reasonByClientId ? (reasonByClientId[c.id]||'new') : 'new';
+        const reasonLabel = reason==='price_drop' ? '💸 Fiyat düştü' : (onlyClientIds ? '🆕 Yeni eşleşme' : '');
+        return `
         <div class="announce-row">
           <div>
-            <div class="ar-name">${esc(c.name)}</div>
+            <div class="ar-name">${esc(c.name)}${reasonLabel? ` <span style="font-size:10.5px;font-weight:600;color:var(--brass-dark);">· ${reasonLabel}</span>`:''}</div>
             <div class="ar-sub">${esc(c.phone)||'—'}</div>
           </div>
-          <button data-announce-send="${p.id}:${c.id}">💬 Gönder</button>
-        </div>
-      `).join('');
+          <button data-announce-send="${p.id}:${c.id}:${reason}">💬 Gönder</button>
+        </div>`;
+      }).join('');
     }
     $('announceMatchesOverlay').classList.add('open');
   }
   $('announceMatchesCloseBtn').addEventListener('click', ()=> $('announceMatchesOverlay').classList.remove('open'));
+  $('announceMatchesList').addEventListener('click', (e)=>{
+    const btn = e.target.closest('[data-announce-send]');
+    if(!btn) return;
+    const [propId, clientId, reason] = btn.dataset.announceSend.split(':');
+    sendAnnounceToClient(propId, clientId, reason);
+  });
 
-  async function sendAnnounceToClient(propId, clientId){
+  async function sendAnnounceToClient(propId, clientId, reason){
     const p = properties.find(x=>x.id===propId);
     const c = clients.find(x=>x.id===clientId);
     if(!p || !c) return;
     // WhatsApp sohbetini hemen aç (dokunma jesti içinde kalsın, popup engellenmesin)
     const phone = normalizePhoneForWa(c.phone);
-    const text = `Merhaba ${c.name}, sistemimize tam sizin aradığınız gibi yeni bir daire eklendi! 🏠✨\n\n${p.site}${p.block? ' - '+p.block:''}\n${p.loc||''}\n${p.rooms}${p.floor? ' · '+(p.floor==='Bahçe Katı'?'Bahçe Katı':p.floor+'. Kat'):''} · ${priceLabel(p)}\n\nFotoğrafı ve detayları birazdan iletiyorum. 📎`;
+    const intro = reason==='price_drop'
+      ? `Merhaba ${c.name}, daha önce baktığınız bir dairenin fiyatı düştü! 💸`
+      : `Merhaba ${c.name}, sistemimize tam sizin aradığınız gibi yeni bir daire eklendi! 🏠✨`;
+    const text = `${intro}\n\n${p.site}${p.block? ' - '+p.block:''}\n${p.loc||''}\n${p.rooms}${p.floor? ' · '+(p.floor==='Bahçe Katı'?'Bahçe Katı':p.floor+'. Kat'):''} · ${priceLabel(p)}\n\nFotoğrafı ve detayları birazdan iletiyorum. 📎`;
     const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
     window.open(waUrl, '_blank');
     $('announceMatchesOverlay').classList.remove('open');
@@ -2389,6 +2400,9 @@
     if(!site){ showToast('Site / bina adı boş olamaz.'); return; }
     if(!selectedStatuses.length){ showToast('En az bir durum seç: Satılık veya Kiralık.'); return; }
 
+    const oldPropSnapshot = editingPropId ? properties.find(x=>x.id===editingPropId) : null;
+    const oldMatchedIds = oldPropSnapshot ? new Set(matchingClientsForProp(oldPropSnapshot).map(c=>c.id)) : new Set();
+
     const toUpload = pendingMedia.filter(m=>!m.url && m.file);
     if(toUpload.length){
       $('propSave').disabled = true;
@@ -2458,7 +2472,7 @@
       const matched = matchingClientsForProp(p);
       const ownedMatched = matched.filter(isClientOwner);
       if(matched.length){
-        showToast(`🔑 <b>${matched.length} müşteriyle eşleşti:</b> ${matched.map(c=>esc(c.name)).join(', ')}`, 6000);
+        showToast(`🔑 <b>${matched.length} müşteriyle eşleşti:</b> ${matched.map(c=>isClientOwner(c)?esc(c.name):'🔒 Gizli müşteri').join(', ')}`, 6000);
       } else {
         showToast('Daire kaydedildi. Şu an kriterlerine uyan müşteri yok.');
       }
@@ -2468,7 +2482,40 @@
         shareAnnouncement(p.id);
       }
     } else {
-      showToast('Daire güncellendi.');
+      const newMatched = matchingClientsForProp(p);
+      const newlyMatched = newMatched.filter(c=>!oldMatchedIds.has(c.id));
+      const stillMatched = newMatched.filter(c=>oldMatchedIds.has(c.id));
+
+      let priceDropped = false;
+      if(oldPropSnapshot){
+        ['sale','rent'].forEach(type=>{
+          const oldPrice = priceOf(oldPropSnapshot, type);
+          const newPrice = priceOf(p, type);
+          if(oldPrice && newPrice && currencyOf(oldPropSnapshot,type)===currencyOf(p,type) && newPrice < oldPrice){
+            priceDropped = true;
+          }
+        });
+      }
+
+      const reasonByClientId = {};
+      newlyMatched.forEach(c=> reasonByClientId[c.id] = 'new');
+      if(priceDropped) stillMatched.forEach(c=> reasonByClientId[c.id] = 'price_drop');
+      const notifyIds = Object.keys(reasonByClientId);
+      const notifyClients = newMatched.filter(c=> notifyIds.includes(c.id));
+      const notifyOwned = notifyClients.filter(isClientOwner);
+
+      if(newlyMatched.length && priceDropped){
+        showToast(`Daire güncellendi. 🔑 <b>${newlyMatched.length} yeni eşleşme</b> + fiyat düştüğü için <b>${stillMatched.length} eski eşleşmeye</b> tekrar haber verilebilir.`, 6000);
+      } else if(newlyMatched.length){
+        showToast(`Daire güncellendi. 🔑 <b>${newlyMatched.length} yeni müşteriyle eşleşti:</b> ${newlyMatched.map(c=>isClientOwner(c)?esc(c.name):'🔒 Gizli müşteri').join(', ')}`, 6000);
+      } else if(priceDropped && stillMatched.length){
+        showToast(`Daire güncellendi. 💸 Fiyat düştüğü için <b>${stillMatched.length} eşleşen müşteriye</b> tekrar haber verilebilir.`, 6000);
+      } else {
+        showToast('Daire güncellendi.');
+      }
+      if(notifyOwned.length){
+        openAnnounceMatchesOverlay(p.id, notifyOwned.map(c=>c.id), reasonByClientId);
+      }
     }
   });
 
