@@ -230,8 +230,15 @@
   }
   .client-body.open{display:block;}
   .match-item{
+    cursor:pointer;
     display:flex; gap:10px; padding:9px 0; border-bottom:1px solid var(--border);
   }
+  .match-item:active{background:var(--bg);}
+  @keyframes propHighlight{
+    0%{ box-shadow:0 0 0 3px var(--brass); }
+    100%{ box-shadow:0 0 0 0 rgba(192,145,67,0); }
+  }
+  .card.jump-highlight{ animation:propHighlight 1.6s ease-out; }
   .match-item:last-child{border-bottom:none;}
   .match-item img, .match-item video{width:52px;height:52px;border-radius:8px;object-fit:cover;border:1px solid var(--border);flex-shrink:0;background:#000;}
   .match-item .noimg{width:52px;height:52px;border-radius:8px;background:var(--bg);flex-shrink:0;}
@@ -1061,13 +1068,13 @@
     if(client.site){
       const wantedSites = tagList(client.site);
       const propSite = norm(prop.site);
-      if(wantedSites.length && !wantedSites.some(s => propSite.includes(s))) return null;
+      if(wantedSites.length && !wantedSites.some(s => propSite.includes(s) || (propSite && s.includes(propSite)))) return null;
     }
     // blok (kesin şart; virgülle birden fazla blok yazılabilir, herhangi biri eşleşirse yeterli)
     if(client.block){
       const wantedBlocks = tagList(client.block);
       const propBlock = norm(prop.block);
-      if(wantedBlocks.length && !wantedBlocks.some(b => propBlock.includes(b))) return null;
+      if(wantedBlocks.length && !wantedBlocks.some(b => propBlock.includes(b) || (propBlock && b.includes(propBlock)))) return null;
     }
     // eşyalı/eşyasız (kesin şart; Farketmez ise engellemez)
     if(client.furnishedPref && client.furnishedPref!=='Farketmez'){
@@ -1261,7 +1268,7 @@
         </div>
         <div class="client-body ${isOpen?'open':''}">
           ${m.length ? m.map(({prop,score})=>`
-            <div class="match-item">
+            <div class="match-item" data-goto-prop="${prop.id}">
               ${(() => { const m = mediaOf(prop)[0]; if(!m) return `<div class="noimg"></div>`; return m.type==="video" ? `<video src="${srcOf(m)}" muted></video>` : `<img src="${srcOf(m)}">`; })()}
               <div class="mi-info">
                 <div class="t">${esc(prop.site)} ${esc(prop.block)}</div>
@@ -1304,7 +1311,7 @@
         </div>
         <div class="client-body open">
           ${m.map(({prop,score})=>`
-            <div class="match-item">
+            <div class="match-item" data-goto-prop="${prop.id}">
               ${(() => { const m = mediaOf(prop)[0]; if(!m) return `<div class="noimg"></div>`; return m.type==="video" ? `<video src="${srcOf(m)}" muted></video>` : `<img src="${srcOf(m)}">`; })()}
               <div class="mi-info">
                 <div class="t">${esc(prop.site)} ${esc(prop.block)}</div>
@@ -1390,7 +1397,24 @@
   });
   $('searchInput').addEventListener('input', render);
 
+  function goToProperty(propId){
+    activeTab = 'properties';
+    document.querySelectorAll('.bottomnav button').forEach(b=> b.classList.toggle('active', b.dataset.tab==='properties'));
+    $('searchInput').value = '';
+    render();
+    setTimeout(()=>{
+      const card = mainEl.querySelector(`.card[data-id="${propId}"]`);
+      if(card){
+        card.scrollIntoView({ behavior:'smooth', block:'center' });
+        card.classList.add('jump-highlight');
+        setTimeout(()=> card.classList.remove('jump-highlight'), 1700);
+      }
+    }, 60);
+  }
+
   mainEl.addEventListener('click', (e)=>{
+    const gotoP = e.target.closest('[data-goto-prop]');
+    if(gotoP){ goToProperty(gotoP.dataset.gotoProp); return; }
     const toggle = e.target.closest('[data-toggle]');
     if(toggle){
       const id = toggle.dataset.toggle;
