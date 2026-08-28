@@ -538,7 +538,21 @@
   .note-line{ display:flex; gap:9px; align-items:flex-start; padding:5px 0; }
   .note-line .lq-check{ width:20px; height:20px; font-size:11px; margin-top:1px; }
   .note-line .lq-text{ font-size:13px; }
-  .note-card-meta{ font-size:10.5px; color:var(--muted); margin-top:4px; padding-top:5px; border-top:1px dashed var(--border); display:flex; justify-content:space-between; align-items:center; }
+  .note-card-meta{ font-size:10.5px; color:var(--muted); margin-top:4px; padding-top:5px; border-top:1px dashed var(--border); display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .note-card.due{ border-color:var(--danger); background:var(--danger-bg); }
+  .note-reminder-badge{
+    display:inline-block; font-size:11px; font-weight:700; color:var(--danger);
+    background:#fff; border:1px solid var(--danger); border-radius:20px; padding:2px 9px; margin-bottom:6px;
+  }
+  .contact-log{ margin-top:12px; padding-top:10px; border-top:1px dashed var(--border); }
+  .contact-log-header{ font-size:12px; font-weight:700; color:var(--ink); margin-bottom:6px; }
+  .contact-log-item{ background:var(--panel); border-radius:8px; padding:7px 10px; margin-bottom:6px; }
+  .contact-log-text{ font-size:12.5px; line-height:1.4; }
+  .contact-log-meta{ font-size:10.5px; color:var(--muted); margin-top:3px; }
+  .contact-log-empty{ font-size:12px; color:var(--muted); margin-bottom:6px; }
+  .contact-log-add{ display:flex; gap:6px; margin-top:6px; }
+  .contact-log-add input{ flex:1; padding:8px 10px; border-radius:8px; border:1px solid var(--border); font-size:12.5px; }
+  .contact-log-add button{ flex-shrink:0; padding:8px 12px; border-radius:8px; border:none; background:var(--deep); color:#fff; font-size:12px; cursor:pointer; }
   .mic-btn.active{ background:var(--danger); color:#fff; border-color:var(--danger); }
 
   /* toast */
@@ -902,6 +916,9 @@
     <div class="field">
       <label class="check-row"><input type="checkbox" id="f_citizenship"> Sadece vatandaşlığa uygun daireler</label>
     </div>
+    <div class="field">
+      <label class="check-row"><input type="checkbox" id="f_archived"> 📦 Sadece arşivlenmiş (Satıldı/Kiralandı) daireler</label>
+    </div>
     <div class="sheet-actions">
       <button class="btn ghost" id="filterClearBtn">Temizle</button>
       <button class="btn primary" id="filterApplyBtn">Uygula</button>
@@ -960,7 +977,7 @@
   let activeTab = 'properties';
   let editingPropId = null;
   let editingClientId = null;
-  let propFilters = { status:[], rooms:[], furnished:[], citizenship:false, saleMin:'', saleMax:'', rentMin:'', rentMax:'', floorMin:'', floorMax:'' };
+  let propFilters = { status:[], rooms:[], furnished:[], citizenship:false, saleMin:'', saleMax:'', rentMin:'', rentMax:'', floorMin:'', floorMax:'', showArchived:false };
   let compareMode = false;
   let compareSelection = new Set();
   let galleryPropId = null;
@@ -968,9 +985,11 @@
   let activeVoiceRecognition = null;
   const noteLists = {
     listing:  { collection:'listingQueue',      items: [], label:'İlan Girilecek Daireler', icon:'📝', placeholder:"Örn: Ahmet Bey'in Zeytinburnu'ndaki 3+1 dairesi, fotoğraf bekleniyor..." },
-    followup: { collection:'weeklyFollowups',    items: [], label:'Haftalık Müşteri Takipleri', icon:'📅', placeholder:"Örn: Ayşe Hanım'ı Cuma günü ara, bütçesini netleştir" },
+    followup: { collection:'weeklyFollowups',    items: [], label:'Haftalık Müşteri Takipleri', icon:'📅', placeholder:"Örn: Ayşe Hanım'ı Cuma günü ara, bütçesini netleştir", hasReminder:true },
     important:{ collection:'importantClients',   items: [], label:'Önemli Müşteriler', icon:'⭐', placeholder:"Örn: Mehmet Bey - yüksek bütçe, hızlı karar verir, öncelikli ara" }
   };
+  let editingNoteKey = null;
+  let editingNoteId = null;
   let pendingMedia = []; // {type:'image'|'video', data:base64} for form in progress
   let selectedStatuses = [];
   let selectedFurnished = [];
@@ -1312,6 +1331,8 @@
       b.classList.toggle('active', b.dataset.tab === activeTab);
     });
     $('searchRow').style.display = (activeTab==='matches' || activeTab==='notes') ? 'none' : 'block';
+    $('filterBtn').style.display = activeTab==='properties' ? '' : 'none';
+    $('compareToggleBtn').style.display = activeTab==='properties' ? '' : 'none';
     $('fabBtn').style.display = (activeTab==='notes') ? 'none' : 'flex';
 
     if(activeTab === 'properties') renderProperties();
@@ -1394,9 +1415,11 @@
     let list = properties.slice().reverse();
     if(q) list = list.filter(p => norm(p.site+' '+p.loc+' '+p.block+' '+p.tags).includes(q));
     list = list.filter(propMatchesFilters);
+    if(!propFilters.showArchived) list = list.filter(p=>!p.archived);
+    else list = list.filter(p=>p.archived);
     const banner = renderContractBanner();
     if(!list.length){
-      mainEl.innerHTML = banner + `<div class="empty"><div class="icon">🏠</div><p>${properties.length? 'Aramanla/filtrenle eşleşen daire yok.' : 'Henüz daire eklemedin. Sağ alttaki + butonuyla ilk daireyi ekle.'}</p></div>`;
+      mainEl.innerHTML = banner + `<div class="empty"><div class="icon">🏠</div><p>${propFilters.showArchived ? 'Arşivde daire yok.' : (properties.length? 'Aramanla/filtrenle eşleşen daire yok.' : 'Henüz daire eklemedin. Sağ alttaki + butonuyla ilk daireyi ekle.')}</p></div>`;
       return;
     }
     mainEl.innerHTML = banner + list.map(p=>{
@@ -1405,12 +1428,16 @@
       const extraTags = [p.kitchenType, (p.balcony==='Var'?'Balkonlu':(p.balcony==='Yok'?'Balkonsuz':null))].filter(Boolean);
       const photos = mediaOf(p);
       const isSelected = compareSelection.has(p.id);
+      const staleDays = p.updatedAt ? Math.floor((Date.now()-p.updatedAt)/86400000) : null;
+      const isStale = !p.archived && staleDays!==null && staleDays>=15;
       return `
       <div class="card" data-id="${p.id}">
         ${compareMode? `<div class="compare-checkbox ${isSelected?'checked':''}" data-compare-toggle="${p.id}">${isSelected?'✓':''}</div>` : ''}
         <div class="tab ${matched.length? '' : 'zero'}"><span class="dot"></span>🔑 ${matched.length}</div>
         <h3>${esc(p.site)||'İsimsiz Daire'}</h3>
         <div class="loc">${esc(p.block)? esc(p.block)+' · ':''}${esc(p.loc)||''} · ${esc(p.rooms)} · ${p.floor? (p.floor==='Bahçe Katı'?'Bahçe Katı':p.floor+'. Kat'):''} · ${esc(statusOf(p).join(' / '))}</div>
+        ${p.archived? `<div style="margin-bottom:8px;"><span class="contract-badge">📦 ${esc(p.archiveStatus)||'Arşivlendi'}</span></div>` : ''}
+        ${isStale? `<div style="margin-bottom:8px;"><span class="note-reminder-badge" style="margin-bottom:0;">⏰ ${staleDays} gündür güncellenmedi</span></div>` : ''}
         ${p.citizenshipEligible? `<div style="margin-bottom:8px;"><span class="citizen-badge">🛂 Vatandaşlığa uygun</span></div>` : ''}
         ${p.rentedOut && p.contractStart ? (()=>{ const end=contractEndOf(p); const d=daysUntil(end); return `<div style="margin-bottom:8px;"><span class="contract-badge">📅 Sözleşme: ${fmtDateTR(end)} (${d<0? 'süresi doldu' : d+' gün kaldı'})</span></div>`; })() : ''}
         ${(extraTags.length||tags.length)? `<div class="tags">${extraTags.map(t=>`<span>${esc(t)}</span>`).join('')}${tags.map(t=>`<span>${esc(t)}</span>`).join('')}</div>` : ''}
@@ -1420,6 +1447,12 @@
         <div class="card-foot">
           <div class="stamp">${priceLabel(p)}</div>
           <div class="card-actions">
+            ${p.archived? `
+              <button class="icon-btn" data-unarchive-prop="${p.id}">↩️</button>
+            ` : `
+              <button class="icon-btn" data-archive-prop="${p.id}:Satıldı">✅</button>
+              <button class="icon-btn" data-archive-prop="${p.id}:Kiralandı">🔑</button>
+            `}
             <button class="icon-btn" data-share-prop="${p.id}">📤</button>
             <button class="icon-btn" data-download-prop="${p.id}">⬇️</button>
             <button class="icon-btn" data-announce-prop="${p.id}">📢</button>
@@ -1477,6 +1510,20 @@
           ${(c.notes && ownerC)? `<div style="margin-top:10px;font-size:12.5px;color:var(--muted);"><b style="color:var(--ink)">Not:</b> ${esc(c.notes)}</div>`:''}
           ${(m.length && ownerC)? `<button class="send-btn" data-whatsapp="${c.id}">💬 Eşleşmeleri WhatsApp'ta gönder</button>` : ''}
           ${(m.length && !ownerC)? `<div style="font-size:12px;color:var(--muted);margin-top:6px;">Bu müşteriyi başka bir kullanıcı ekledi — detaylar onda.</div>` : ''}
+          ${ownerC? `
+          <div class="contact-log">
+            <div class="contact-log-header">📞 İletişim Geçmişi</div>
+            ${(c.contactLog&&c.contactLog.length) ? c.contactLog.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(l=>`
+              <div class="contact-log-item">
+                <div class="contact-log-text">${esc(l.text)}</div>
+                <div class="contact-log-meta">${esc(l.createdBy||'')} · ${fmtDateTimeTR(new Date(l.createdAt))}</div>
+              </div>
+            `).join('') : `<div class="contact-log-empty">Henüz kayıt yok — aradığında/görüştüğünde buraya not düş.</div>`}
+            <div class="contact-log-add">
+              <input type="text" data-contactlog-input="${c.id}" placeholder="Örn: Aradım, Cuma tekrar arayacağım">
+              <button data-contactlog-add="${c.id}">Ekle</button>
+            </div>
+          </div>` : ''}
           ${ownerC? `<div class="client-actions">
             <button class="icon-btn" data-edit-client="${c.id}">✎ Düzenle</button>
             <button class="icon-btn danger" data-del-client="${c.id}">🗑 Sil</button>
@@ -1529,18 +1576,32 @@
   function isNoteFullyDone(item){
     return getNoteLines(item).every(l=>l.done);
   }
+  function fmtDateTimeTR(d){
+    if(!d) return '';
+    return d.toLocaleDateString('tr-TR', {day:'2-digit', month:'2-digit', year:'numeric'}) + ' · ' + d.toLocaleTimeString('tr-TR', {hour:'2-digit', minute:'2-digit'});
+  }
+  function todayStr(){ return new Date().toISOString().slice(0,10); }
+  function isReminderDue(item){
+    return !!item.reminderDate && item.reminderDate <= todayStr() && !isNoteFullyDone(item);
+  }
   function renderNotes(){
     mainEl.innerHTML = Object.keys(noteLists).map(key=>{
       const cfg = noteLists[key];
+      const isEditingHere = editingNoteKey===key && editingNoteId;
+      const editingItem = isEditingHere ? cfg.items.find(x=>x.id===editingNoteId) : null;
       const sorted = cfg.items.slice().sort((a,b)=>{
+        const ra = isReminderDue(a), rb = isReminderDue(b);
+        if(ra !== rb) return ra ? -1 : 1;
         const da = isNoteFullyDone(a), db = isNoteFullyDone(b);
         if(da !== db) return da ? 1 : -1;
         return (b.createdAt||0)-(a.createdAt||0);
       });
       const listHtml = sorted.length ? sorted.map(item=>{
         const lines = getNoteLines(item);
+        const due = isReminderDue(item);
         return `
-        <div class="note-card" data-note-id="${item.id}">
+        <div class="note-card ${due?'due':''}" data-note-id="${item.id}">
+          ${due? `<div class="note-reminder-badge">🔔 Hatırlatma: ${esc(item.reminderDate)}</div>` : ''}
           ${lines.map((l,i)=>`
             <div class="note-line">
               <div class="lq-check ${l.done?'done':''}" data-note-line-toggle="${key}:${item.id}:${i}">${l.done?'✓':''}</div>
@@ -1548,8 +1609,11 @@
             </div>
           `).join('')}
           <div class="note-card-meta">
-            <span>${esc(item.createdBy||'')}${item.createdAt? ' · '+fmtDateTR(new Date(item.createdAt)) : ''}</span>
-            <button class="lq-del" data-note-del="${key}:${item.id}">🗑</button>
+            <span>${esc(item.createdBy||'')}${item.createdAt? ' · '+fmtDateTimeTR(new Date(item.createdAt)) : ''}${item.reminderDate && !due? ' · 🔔 '+esc(item.reminderDate) : ''}</span>
+            <span>
+              <button class="lq-del" data-note-edit="${key}:${item.id}" title="Düzenle">✎</button>
+              <button class="lq-del" data-note-del="${key}:${item.id}" title="Sil">🗑</button>
+            </span>
           </div>
         </div>`;
       }).join('') : `<div style="font-size:12.5px;color:var(--muted);padding:6px 0;">Henüz not yok.</div>`;
@@ -1557,13 +1621,19 @@
       <div class="note-section">
         <h3 style="margin:0 0 10px;">${cfg.icon} ${esc(cfg.label)}</h3>
         <div class="field" style="margin-bottom:8px;">
-          <textarea data-note-input="${key}" placeholder="${esc(cfg.placeholder)}" style="min-height:60px;"></textarea>
+          <textarea data-note-input="${key}" placeholder="${esc(cfg.placeholder)}" style="min-height:60px;">${isEditingHere? esc(getNoteLines(editingItem).map(l=>l.text).join('\n')) : ''}</textarea>
         </div>
         <div class="lock-sub" style="text-align:left;margin:-6px 0 8px;">Her satır ayrı bir madde olur, her birine ayrı tik atabilirsin.</div>
+        ${cfg.hasReminder? `
+        <div class="field" style="margin-bottom:8px;">
+          <label>Hatırlatma tarihi (opsiyonel)</label>
+          <input type="date" data-note-reminder="${key}" value="${isEditingHere? esc((editingItem&&editingItem.reminderDate)||'') : ''}">
+        </div>` : ''}
         <div class="row2" style="margin-bottom:4px;">
           <button class="btn ghost mic-btn" data-note-mic="${key}" style="flex:1;">🎤 Sesle Ekle</button>
-          <button class="btn primary" data-note-add="${key}" style="flex:1;">+ Ekle</button>
+          <button class="btn primary" data-note-add="${key}" style="flex:1;">${isEditingHere? '✓ Güncelle' : '+ Ekle'}</button>
         </div>
+        ${isEditingHere? `<button class="btn ghost" data-note-edit-cancel="${key}" style="width:100%;margin-bottom:4px;">Düzenlemeyi İptal Et</button>` : ''}
         <div>${listHtml}</div>
       </div>`;
     }).join('');
@@ -1628,6 +1698,33 @@
     }
     const editP = e.target.closest('[data-edit-prop]');
     if(editP){ openPropForm(editP.dataset.editProp); return; }
+    const archiveP = e.target.closest('[data-archive-prop]');
+    if(archiveP){
+      const [id, status] = archiveP.dataset.archiveProp.split(':');
+      const p = properties.find(x=>x.id===id);
+      if(!p) return;
+      if(!confirm(`Bu daireyi "${status}" olarak işaretleyip listeden kaldırmak istediğine emin misin? Arşivden istediğin zaman geri alabilirsin.`)) return;
+      p.archived = true;
+      p.archiveStatus = status;
+      p.updatedAt = Date.now();
+      savePropertyRecord(p);
+      render();
+      showToast(`Daire "${status}" olarak arşivlendi.`);
+      return;
+    }
+    const unarchiveP = e.target.closest('[data-unarchive-prop]');
+    if(unarchiveP){
+      const id = unarchiveP.dataset.unarchiveProp;
+      const p = properties.find(x=>x.id===id);
+      if(!p) return;
+      p.archived = false;
+      p.archiveStatus = null;
+      p.updatedAt = Date.now();
+      savePropertyRecord(p);
+      render();
+      showToast('Daire tekrar aktif listeye alındı.');
+      return;
+    }
     const shareP = e.target.closest('[data-share-prop]');
     if(shareP){ shareProperty(shareP.dataset.shareProp); return; }
     const downloadP = e.target.closest('[data-download-prop]');
@@ -1658,17 +1755,65 @@
     }
     const wa = e.target.closest('[data-whatsapp]');
     if(wa){ sendWhatsapp(wa.dataset.whatsapp); return; }
+    const clogAdd = e.target.closest('[data-contactlog-add]');
+    if(clogAdd){
+      const cid = clogAdd.dataset.contactlogAdd;
+      const input = mainEl.querySelector(`[data-contactlog-input="${cid}"]`);
+      const text = input.value.trim();
+      if(!text){ showToast('Not boş olamaz.'); return; }
+      const c = clients.find(x=>x.id===cid);
+      if(!c) return;
+      c.contactLog = c.contactLog || [];
+      c.contactLog.push({ text, createdBy: CURRENT_USER, createdAt: Date.now() });
+      saveClientRecord(c);
+      render();
+      return;
+    }
     const noteMic = e.target.closest('[data-note-mic]');
     if(noteMic){ toggleVoiceNote(noteMic.dataset.noteMic); return; }
+    const noteEditCancel = e.target.closest('[data-note-edit-cancel]');
+    if(noteEditCancel){
+      editingNoteKey = null; editingNoteId = null;
+      renderNotes();
+      return;
+    }
+    const noteEdit = e.target.closest('[data-note-edit]');
+    if(noteEdit){
+      const [key, id] = noteEdit.dataset.noteEdit.split(':');
+      editingNoteKey = key; editingNoteId = id;
+      renderNotes();
+      const ta = mainEl.querySelector(`[data-note-input="${key}"]`);
+      if(ta){ ta.scrollIntoView({behavior:'smooth', block:'center'}); ta.focus(); }
+      return;
+    }
     const noteAdd = e.target.closest('[data-note-add]');
     if(noteAdd){
       const key = noteAdd.dataset.noteAdd;
       const input = mainEl.querySelector(`[data-note-input="${key}"]`);
       const lines = input.value.split('\n').map(s=>s.trim()).filter(Boolean);
       if(!lines.length){ showToast('Not boş olamaz.'); return; }
+      const reminderInput = mainEl.querySelector(`[data-note-reminder="${key}"]`);
+      const reminderDate = reminderInput ? reminderInput.value : '';
+      if(editingNoteKey===key && editingNoteId){
+        const item = noteLists[key].items.find(x=>x.id===editingNoteId);
+        if(item){
+          const oldLines = getNoteLines(item);
+          item.lines = lines.map((t,i)=> ({ text:t, done: oldLines[i] ? oldLines[i].done : false }));
+          if(reminderInput) item.reminderDate = reminderDate || null;
+          item.editedAt = Date.now();
+          saveNoteRecord(key, item);
+        }
+        editingNoteKey = null; editingNoteId = null;
+        input.value = '';
+        renderNotes();
+        showToast('Not güncellendi.');
+        return;
+      }
       const item = { id: uid(), lines: lines.map(t=>({text:t, done:false})), createdBy: CURRENT_USER, createdAt: Date.now() };
+      if(reminderInput && reminderDate) item.reminderDate = reminderDate;
       noteLists[key].items.push(item);
       input.value = '';
+      if(reminderInput) reminderInput.value = '';
       renderNotes();
       saveNoteRecord(key, item);
       return;
@@ -1690,9 +1835,21 @@
       const [key, id] = noteDel.dataset.noteDel.split(':');
       if(!confirm('Bu notu silmek istediğine emin misin?')) return;
       noteLists[key].items = noteLists[key].items.filter(x=>x.id!==id);
+      if(editingNoteKey===key && editingNoteId===id){ editingNoteKey=null; editingNoteId=null; }
       renderNotes();
       deleteNoteRecord(key, id);
       return;
+    }
+  });
+
+  mainEl.addEventListener('keydown', (e)=>{
+    if(e.key !== 'Enter') return;
+    const clogInput = e.target.closest('[data-contactlog-input]');
+    if(clogInput){
+      e.preventDefault();
+      const cid = clogInput.dataset.contactlogInput;
+      const btn = mainEl.querySelector(`[data-contactlog-add="${cid}"]`);
+      if(btn) btn.click();
     }
   });
 
@@ -2190,7 +2347,10 @@
       ownerPhone: (editingPropId && !isPropertyOwner(properties.find(x=>x.id===editingPropId))) ? (properties.find(x=>x.id===editingPropId)||{}).ownerPhone || '' : $('p_owner_phone').value.trim(),
       media: finalMedia,
       createdBy: editingPropId ? ((properties.find(x=>x.id===editingPropId)||{}).createdBy || CURRENT_USER) : CURRENT_USER,
-      createdAt: editingPropId ? (properties.find(x=>x.id===editingPropId)||{}).createdAt || Date.now() : Date.now()
+      createdAt: editingPropId ? (properties.find(x=>x.id===editingPropId)||{}).createdAt || Date.now() : Date.now(),
+      updatedAt: Date.now(),
+      archived: editingPropId ? !!(properties.find(x=>x.id===editingPropId)||{}).archived : false,
+      archiveStatus: editingPropId ? (properties.find(x=>x.id===editingPropId)||{}).archiveStatus || null : null
     };
     if(editingPropId){
       properties = properties.map(x=> x.id===editingPropId ? p : x);
@@ -2474,6 +2634,7 @@
     $('f_rooms_chips').querySelectorAll('[data-froom]').forEach(c=> c.classList.toggle('active', propFilters.rooms.includes(c.dataset.froom)));
     $('f_furnished_chips').querySelectorAll('[data-ffurn]').forEach(c=> c.classList.toggle('active', propFilters.furnished.includes(c.dataset.ffurn)));
     $('f_citizenship').checked = propFilters.citizenship;
+    $('f_archived').checked = propFilters.showArchived;
     $('f_sale_min').value = propFilters.saleMin;
     $('f_sale_max').value = propFilters.saleMax;
     $('f_rent_min').value = propFilters.rentMin;
@@ -2512,6 +2673,7 @@
       rooms: [...$('f_rooms_chips').querySelectorAll('[data-froom].active')].map(c=>c.dataset.froom),
       furnished: [...$('f_furnished_chips').querySelectorAll('[data-ffurn].active')].map(c=>c.dataset.ffurn),
       citizenship: $('f_citizenship').checked,
+      showArchived: $('f_archived').checked,
       saleMin: $('f_sale_min').value, saleMax: $('f_sale_max').value,
       rentMin: $('f_rent_min').value, rentMax: $('f_rent_max').value,
       floorMin: $('f_floor_min').value, floorMax: $('f_floor_max').value
@@ -2521,7 +2683,7 @@
     render();
   });
   $('filterClearBtn').addEventListener('click', ()=>{
-    propFilters = { status:[], rooms:[], furnished:[], citizenship:false, saleMin:'', saleMax:'', rentMin:'', rentMax:'', floorMin:'', floorMax:'' };
+    propFilters = { status:[], rooms:[], furnished:[], citizenship:false, saleMin:'', saleMax:'', rentMin:'', rentMax:'', floorMin:'', floorMax:'', showArchived:false };
     syncFilterUI();
     $('filterOverlay').classList.remove('open');
     updateFilterBadge();
