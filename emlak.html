@@ -1290,12 +1290,12 @@
   }
 
   function renderMatches(){
-    const withMatches = clients.map(c=>({c, m: matchesForClient(c)})).filter(x=>x.m.length).sort((a,b)=>b.m.length-a.m.length);
+    const withMatches = clients.map(c=>({c, m: matchesForClient(c)})).filter(x=>x.m.length).sort((a,b)=>(b.c.createdAt||0)-(a.c.createdAt||0));
     if(!withMatches.length){
       mainEl.innerHTML = `<div class="empty"><div class="icon">🔑</div><p>Şu an aktif eşleşme yok. Daire veya müşteri ekledikçe burada otomatik listelenecek.</p></div>`;
       return;
     }
-    mainEl.innerHTML = `<div style="font-size:12.5px;color:var(--muted);margin:4px 0 12px;">Kriterlerine uyan dairesi olan müşteriler, en çok eşleşenden aza doğru:</div>` +
+    mainEl.innerHTML = `<div style="font-size:12.5px;color:var(--muted);margin:4px 0 12px;">Kriterlerine uyan dairesi olan müşteriler, en son eklenenden en eskiye doğru:</div>` +
       withMatches.map(({c,m})=>{
         const ownerC = isClientOwner(c);
         const phoneDisplay = ownerC ? (esc(c.phone)||'—') : '🔒 Gizli';
