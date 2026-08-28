@@ -532,17 +532,14 @@
     padding:16px; margin-bottom:16px;
   }
   .note-section h3{ font-family:var(--font-display); color:var(--deep); }
-
-  .ocr-loading{
-    position:fixed; inset:0; z-index:400; background:rgba(0,0,0,0.7);
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    color:#fff; font-size:14px; gap:14px;
+  .note-card{
+    border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:8px; background:#fff;
   }
-  .ocr-spinner{
-    width:38px; height:38px; border-radius:50%; border:4px solid rgba(255,255,255,0.25);
-    border-top-color:#fff; animation:ocrspin 0.8s linear infinite;
-  }
-  @keyframes ocrspin{ to{ transform:rotate(360deg); } }
+  .note-line{ display:flex; gap:9px; align-items:flex-start; padding:5px 0; }
+  .note-line .lq-check{ width:20px; height:20px; font-size:11px; margin-top:1px; }
+  .note-line .lq-text{ font-size:13px; }
+  .note-card-meta{ font-size:10.5px; color:var(--muted); margin-top:4px; padding-top:5px; border-top:1px dashed var(--border); display:flex; justify-content:space-between; align-items:center; }
+  .mic-btn.active{ background:var(--danger); color:#fff; border-color:var(--danger); }
 
   /* toast */
   .toast{
@@ -940,15 +937,9 @@
 </div>
 
 <div class="toast" id="toast"></div>
-<input type="file" id="ocrFileInput" accept="image/*" capture="environment" style="display:none;">
-<div class="ocr-loading" id="ocrLoading" style="display:none;">
-  <div class="ocr-spinner"></div>
-  <div id="ocrLoadingText">Yazı okunuyor...</div>
-</div>
 
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
   const firebaseConfig = {
     apiKey: "AIzaSyAjxwkTiECK-LTqsth-c21G1HY-6FQNyFg",
@@ -974,7 +965,7 @@
   let compareSelection = new Set();
   let galleryPropId = null;
   let galleryIdx = 0;
-  let ocrTargetKey = null;
+  let activeVoiceRecognition = null;
   const noteLists = {
     listing:  { collection:'listingQueue',      items: [], label:'İlan Girilecek Daireler', icon:'📝', placeholder:"Örn: Ahmet Bey'in Zeytinburnu'ndaki 3+1 dairesi, fotoğraf bekleniyor..." },
     followup: { collection:'weeklyFollowups',    items: [], label:'Haftalık Müşteri Takipleri', icon:'📅', placeholder:"Örn: Ayşe Hanım'ı Cuma günü ara, bütçesini netleştir" },
@@ -1531,31 +1522,46 @@
       </div>`;}).join('');
   }
 
+  function getNoteLines(item){
+    if(item.lines && item.lines.length) return item.lines;
+    return [{ text: item.text||'', done: !!item.done }];
+  }
+  function isNoteFullyDone(item){
+    return getNoteLines(item).every(l=>l.done);
+  }
   function renderNotes(){
     mainEl.innerHTML = Object.keys(noteLists).map(key=>{
       const cfg = noteLists[key];
       const sorted = cfg.items.slice().sort((a,b)=>{
-        if(!!a.done !== !!b.done) return a.done ? 1 : -1;
+        const da = isNoteFullyDone(a), db = isNoteFullyDone(b);
+        if(da !== db) return da ? 1 : -1;
         return (b.createdAt||0)-(a.createdAt||0);
       });
-      const listHtml = sorted.length ? sorted.map(item=>`
-        <div class="lq-item" data-note-id="${item.id}">
-          <div class="lq-check ${item.done?'done':''}" data-note-toggle="${key}:${item.id}">${item.done?'✓':''}</div>
-          <div class="lq-body">
-            <div class="lq-text ${item.done?'done':''}">${esc(item.text)}</div>
-            <div class="lq-meta">${esc(item.createdBy||'')}${item.createdAt? ' · '+fmtDateTR(new Date(item.createdAt)) : ''}</div>
+      const listHtml = sorted.length ? sorted.map(item=>{
+        const lines = getNoteLines(item);
+        return `
+        <div class="note-card" data-note-id="${item.id}">
+          ${lines.map((l,i)=>`
+            <div class="note-line">
+              <div class="lq-check ${l.done?'done':''}" data-note-line-toggle="${key}:${item.id}:${i}">${l.done?'✓':''}</div>
+              <div class="lq-text ${l.done?'done':''}">${esc(l.text)}</div>
+            </div>
+          `).join('')}
+          <div class="note-card-meta">
+            <span>${esc(item.createdBy||'')}${item.createdAt? ' · '+fmtDateTR(new Date(item.createdAt)) : ''}</span>
+            <button class="lq-del" data-note-del="${key}:${item.id}">🗑</button>
           </div>
-          <button class="lq-del" data-note-del="${key}:${item.id}">🗑</button>
-        </div>
-      `).join('') : `<div style="font-size:12.5px;color:var(--muted);padding:6px 0;">Henüz not yok.</div>`;
+        </div>`;
+      }).join('') : `<div style="font-size:12.5px;color:var(--muted);padding:6px 0;">Henüz not yok.</div>`;
       return `
       <div class="note-section">
         <h3 style="margin:0 0 10px;">${cfg.icon} ${esc(cfg.label)}</h3>
         <div class="field" style="margin-bottom:8px;">
-          <textarea data-note-input="${key}" placeholder="${esc(cfg.placeholder)}" style="min-height:44px;"></textarea>
+          <textarea data-note-input="${key}" placeholder="${esc(cfg.placeholder)}" style="min-height:60px;"></textarea>
         </div>
+        <div class="lock-sub" style="text-align:left;margin:-6px 0 8px;">Her satır ayrı bir madde olur, her birine ayrı tik atabilirsin.</div>
         <div class="row2" style="margin-bottom:4px;">
-          <button class="btn ghost" data-note-camera="${key}" style="flex:1;">📷 Fotoğraftan Yazı Oku</button>
+          <button class="btn ghost mic-btn" data-note-mic="${key}" style="flex:1;">🎤 Sesle Ekle</button>
           <button class="btn primary" data-note-add="${key}" style="flex:1;">+ Ekle</button>
         </div>
         <div>${listHtml}</div>
@@ -1652,31 +1658,29 @@
     }
     const wa = e.target.closest('[data-whatsapp]');
     if(wa){ sendWhatsapp(wa.dataset.whatsapp); return; }
-    const noteCamera = e.target.closest('[data-note-camera]');
-    if(noteCamera){
-      ocrTargetKey = noteCamera.dataset.noteCamera;
-      $('ocrFileInput').value = '';
-      $('ocrFileInput').click();
-      return;
-    }
+    const noteMic = e.target.closest('[data-note-mic]');
+    if(noteMic){ toggleVoiceNote(noteMic.dataset.noteMic); return; }
     const noteAdd = e.target.closest('[data-note-add]');
     if(noteAdd){
       const key = noteAdd.dataset.noteAdd;
       const input = mainEl.querySelector(`[data-note-input="${key}"]`);
-      const text = input.value.trim();
-      if(!text){ showToast('Not boş olamaz.'); return; }
-      const item = { id: uid(), text, done:false, createdBy: CURRENT_USER, createdAt: Date.now() };
+      const lines = input.value.split('\n').map(s=>s.trim()).filter(Boolean);
+      if(!lines.length){ showToast('Not boş olamaz.'); return; }
+      const item = { id: uid(), lines: lines.map(t=>({text:t, done:false})), createdBy: CURRENT_USER, createdAt: Date.now() };
       noteLists[key].items.push(item);
+      input.value = '';
       renderNotes();
       saveNoteRecord(key, item);
       return;
     }
-    const noteToggle = e.target.closest('[data-note-toggle]');
-    if(noteToggle){
-      const [key, id] = noteToggle.dataset.noteToggle.split(':');
+    const noteLineToggle = e.target.closest('[data-note-line-toggle]');
+    if(noteLineToggle){
+      const [key, id, idx] = noteLineToggle.dataset.noteLineToggle.split(':');
       const item = noteLists[key].items.find(x=>x.id===id);
       if(!item) return;
-      item.done = !item.done;
+      const lines = getNoteLines(item);
+      lines[Number(idx)].done = !lines[Number(idx)].done;
+      item.lines = lines;
       renderNotes();
       saveNoteRecord(key, item);
       return;
@@ -2596,40 +2600,42 @@
   $('galleryPrevBtn').addEventListener('click', ()=>{ galleryIdx--; renderGalleryStage(); });
   $('galleryNextBtn').addEventListener('click', ()=>{ galleryIdx++; renderGalleryStage(); });
 
-  // ---------- NOT FOTOĞRAFINDAN YAZI OKUMA (OCR) ----------
-  $('ocrFileInput').addEventListener('change', async (e)=>{
-    const file = e.target.files && e.target.files[0];
-    if(!file || !ocrTargetKey) return;
-    const key = ocrTargetKey;
-    $('ocrLoading').style.display = 'flex';
-    $('ocrLoadingText').textContent = 'Yazı okunuyor...';
-    try{
-      const result = await Tesseract.recognize(file, 'tur', {
-        logger: m=>{
-          if(m.status === 'recognizing text' && m.progress != null){
-            $('ocrLoadingText').textContent = `Yazı okunuyor... %${Math.round(m.progress*100)}`;
-          }
-        }
-      });
-      const text = (result && result.data && result.data.text || '').trim();
-      $('ocrLoading').style.display = 'none';
-      if(!text){
-        showToast('Yazı okunamadı — daha net bir fotoğraf dener misin?');
-        return;
-      }
-      const textarea = mainEl.querySelector(`[data-note-input="${key}"]`);
-      if(textarea){
-        textarea.value = textarea.value ? (textarea.value + '\n' + text) : text;
-        textarea.scrollIntoView({behavior:'smooth', block:'center'});
-        textarea.focus();
-      }
-      showToast('Metin okundu — göndermeden önce kontrol et, hatalı kelimeler olabilir.', 5000);
-    }catch(err){
-      console.error(err);
-      $('ocrLoading').style.display = 'none';
-      showToast('Yazı okunamadı, tekrar dener misin?');
+  // ---------- SESLE NOT EKLEME ----------
+  function toggleVoiceNote(key){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!SR){
+      showToast('Bu tarayıcı sesle yazmayı desteklemiyor. Chrome veya güncel Safari ile dene.');
+      return;
     }
-  });
+    if(activeVoiceRecognition){
+      activeVoiceRecognition.stop();
+      return;
+    }
+    const btn = mainEl.querySelector(`[data-note-mic="${key}"]`);
+    const recognition = new SR();
+    recognition.lang = 'tr-TR';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    activeVoiceRecognition = recognition;
+    if(btn){ btn.textContent = '🔴 Dinliyor... (bitince tekrar bas)'; btn.classList.add('active'); }
+    recognition.onresult = (e)=>{
+      const transcript = e.results[0][0].transcript.trim();
+      const textarea = mainEl.querySelector(`[data-note-input="${key}"]`);
+      if(textarea && transcript){
+        textarea.value = textarea.value ? (textarea.value + '\n' + transcript) : transcript;
+      }
+    };
+    recognition.onerror = (e)=>{
+      console.error(e);
+      if(e.error !== 'aborted') showToast('Ses tanınamadı, tekrar dener misin?');
+    };
+    recognition.onend = ()=>{
+      if(btn){ btn.textContent = '🎤 Sesle Ekle'; btn.classList.remove('active'); }
+      activeVoiceRecognition = null;
+    };
+    try{ recognition.start(); }
+    catch(err){ console.error(err); showToast('Mikrofon başlatılamadı.'); activeVoiceRecognition = null; if(btn){ btn.textContent = '🎤 Sesle Ekle'; btn.classList.remove('active'); } }
+  }
 
   loadAll();
   loadExchangeRates();
