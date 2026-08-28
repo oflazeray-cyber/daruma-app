@@ -553,6 +553,15 @@
   .contact-log-add{ display:flex; gap:6px; margin-top:6px; }
   .contact-log-add input{ flex:1; padding:8px 10px; border-radius:8px; border:1px solid var(--border); font-size:12.5px; }
   .contact-log-add button{ flex-shrink:0; padding:8px 12px; border-radius:8px; border:none; background:var(--deep); color:#fff; font-size:12px; cursor:pointer; }
+  .announce-row{
+    display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--border);
+  }
+  .announce-row .ar-name{ flex:1; font-size:13.5px; font-weight:600; }
+  .announce-row .ar-sub{ font-size:11.5px; color:var(--muted); font-weight:400; margin-top:2px; }
+  .announce-row button{
+    flex-shrink:0; padding:9px 12px; border-radius:8px; border:none; background:#25D366; color:#fff;
+    font-size:12px; font-weight:600; cursor:pointer;
+  }
   .mic-btn.active{ background:var(--danger); color:#fff; border-color:var(--danger); }
 
   /* toast */
@@ -875,6 +884,18 @@
       <button class="btn primary" id="qcSaveClient" style="width:100%;">🧑‍💼 Müşteri Olarak Kaydet</button>
       <button class="btn primary" id="qcSaveAppt" style="width:100%;">📝 Takip Notu Olarak Kaydet</button>
       <button class="btn primary" id="qcSaveBoth" style="width:100%;">🧑‍💼📝 Müşteri + Takip Notu Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="announceMatchesOverlay">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <h2>🔑 Bu Daireyle Eşleşen Müşteriler</h2>
+    <p class="lock-sub" style="text-align:left;margin:-8px 0 14px;">Bir müşteriye bas: afiş fotoğrafı hazırlanıp indirilecek ve o müşterinin WhatsApp sohbeti hazır mesajla açılacak — fotoğrafı sohbette 📎 ile eklemen yeterli.</p>
+    <div id="announceMatchesList"></div>
+    <div class="sheet-actions">
+      <button class="btn ghost" id="announceMatchesCloseBtn" style="width:100%;">Kapat</button>
     </div>
   </div>
 </div>
@@ -1455,7 +1476,8 @@
             `}
             <button class="icon-btn" data-share-prop="${p.id}">📤</button>
             <button class="icon-btn" data-download-prop="${p.id}">⬇️</button>
-            <button class="icon-btn" data-announce-prop="${p.id}">📢</button>
+            <button class="icon-btn" data-announce-prop="${p.id}" title="Genel afiş paylaş">📢</button>
+            <button class="icon-btn" data-notify-matches="${p.id}" title="Eşleşen müşterilere gönder">📣</button>
             <button class="icon-btn" data-edit-prop="${p.id}">✎</button>
             <button class="icon-btn danger" data-del-prop="${p.id}">🗑</button>
           </div>
@@ -1731,6 +1753,14 @@
     if(downloadP){ downloadProperty(downloadP.dataset.downloadProp); return; }
     const announceP = e.target.closest('[data-announce-prop]');
     if(announceP){ shareAnnouncement(announceP.dataset.announceProp); return; }
+    const notifyMatches = e.target.closest('[data-notify-matches]');
+    if(notifyMatches){ openAnnounceMatchesOverlay(notifyMatches.dataset.notifyMatches); return; }
+    const announceSend = e.target.closest('[data-announce-send]');
+    if(announceSend){
+      const [propId, clientId] = announceSend.dataset.announceSend.split(':');
+      sendAnnounceToClient(propId, clientId);
+      return;
+    }
     const delP = e.target.closest('[data-del-prop]');
     if(delP){
       if(confirm('Bu daireyi silmek istediğine emin misin?')){
@@ -2039,14 +2069,19 @@
     }, 'image/png', 0.95);
   }
 
+  function normalizePhoneForWa(phone){
+    let p = (phone||'').replace(/\D/g,'');
+    if(p.startsWith('0')) p = '90'+p.slice(1);
+    else if(!p.startsWith('90') && p.length===10) p = '90'+p;
+    return p;
+  }
+
   function sendWhatsapp(clientId){
     const c = clients.find(x=>x.id===clientId);
     if(!c) return;
     const m = matchesForClient(c);
     if(!m.length) return;
-    let phone = (c.phone||'').replace(/\D/g,'');
-    if(phone.startsWith('0')) phone = '90'+phone.slice(1);
-    else if(!phone.startsWith('90') && phone.length===10) phone = '90'+phone;
+    const phone = normalizePhoneForWa(c.phone);
     const intro = m.length===1
       ? `Merhaba ${c.name}, aradığınız kritere uygun bir daire çıktı:\n\n`
       : `Merhaba ${c.name}, aradığınız kritere uygun ${m.length} daire çıktı:\n\n`;
@@ -2058,6 +2093,62 @@
     const text = intro + listText + `\n\nFotoğrafları ayrıca gönderiyorum.`;
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
+  }
+
+  // ---------- YENİ DAİREYİ EŞLEŞEN MÜŞTERİLERE BİLDİRME ----------
+  function openAnnounceMatchesOverlay(propId){
+    const p = properties.find(x=>x.id===propId);
+    if(!p) return;
+    const matched = matchingClientsForProp(p).filter(isClientOwner);
+    const list = $('announceMatchesList');
+    if(!matched.length){
+      list.innerHTML = `<div style="font-size:12.5px;color:var(--muted);padding:10px 0;">Şu an bu daireyle eşleşen (senin eklediğin) müşteri yok.</div>`;
+    } else {
+      list.innerHTML = matched.map(c=>`
+        <div class="announce-row">
+          <div>
+            <div class="ar-name">${esc(c.name)}</div>
+            <div class="ar-sub">${esc(c.phone)||'—'}</div>
+          </div>
+          <button data-announce-send="${p.id}:${c.id}">💬 Gönder</button>
+        </div>
+      `).join('');
+    }
+    $('announceMatchesOverlay').classList.add('open');
+  }
+  $('announceMatchesCloseBtn').addEventListener('click', ()=> $('announceMatchesOverlay').classList.remove('open'));
+
+  async function sendAnnounceToClient(propId, clientId){
+    const p = properties.find(x=>x.id===propId);
+    const c = clients.find(x=>x.id===clientId);
+    if(!p || !c) return;
+    // WhatsApp sohbetini hemen aç (dokunma jesti içinde kalsın, popup engellenmesin)
+    const phone = normalizePhoneForWa(c.phone);
+    const text = `Merhaba ${c.name}, sistemimize tam sizin aradığınız gibi yeni bir daire eklendi! 🏠✨\n\n${p.site}${p.block? ' - '+p.block:''}\n${p.loc||''}\n${p.rooms}${p.floor? ' · '+(p.floor==='Bahçe Katı'?'Bahçe Katı':p.floor+'. Kat'):''} · ${priceLabel(p)}\n\nFotoğrafı ve detayları birazdan iletiyorum. 📎`;
+    const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+    window.open(waUrl, '_blank');
+    $('announceMatchesOverlay').classList.remove('open');
+    showToast('Afiş hazırlanıyor, WhatsApp sohbeti açıldı...', 4000);
+    try{
+      const canvas = await generateAnnouncementCanvas(p);
+      canvas.toBlob((blob)=>{
+        if(!blob){ showToast('Afiş oluşturulamadı.'); return; }
+        const file = new File([blob], `daruma-${(p.site||'daire').replace(/\s+/g,'_')}.png`, {type:'image/png'});
+        if(navigator.canShare && navigator.canShare({files:[file]})){
+          navigator.share({files:[file], title:'Yeni Portföy — Daruma Gayrimenkul'}).catch(()=>{});
+        } else {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = file.name;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(()=> URL.revokeObjectURL(url), 5000);
+        }
+        showToast(`Afiş hazır — WhatsApp sohbetinde 📎 ile ekle.`, 5000);
+      }, 'image/png', 0.95);
+    }catch(e){
+      console.error(e);
+      showToast('Afiş oluşturulamadı, fotoğrafı elle ekleyebilirsin.');
+    }
   }
 
   // ---------- FAB ----------
@@ -2365,12 +2456,17 @@
 
     if(!editingPropId){
       const matched = matchingClientsForProp(p);
+      const ownedMatched = matched.filter(isClientOwner);
       if(matched.length){
         showToast(`🔑 <b>${matched.length} müşteriyle eşleşti:</b> ${matched.map(c=>esc(c.name)).join(', ')}`, 6000);
       } else {
         showToast('Daire kaydedildi. Şu an kriterlerine uyan müşteri yok.');
       }
-      shareAnnouncement(p.id);
+      if(ownedMatched.length){
+        openAnnounceMatchesOverlay(p.id);
+      } else {
+        shareAnnouncement(p.id);
+      }
     } else {
       showToast('Daire güncellendi.');
     }
