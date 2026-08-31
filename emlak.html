@@ -893,13 +893,14 @@
   <div class="sheet">
     <div class="grabber"></div>
     <h2>💳 Kartvizitim</h2>
-    <p class="lock-sub" style="text-align:left;margin:-8px 0 14px;">Kartvizitini ve Instagram profilini kim isterse tek dokunuşla gönder.</p>
+    <p class="lock-sub" style="text-align:left;margin:-8px 0 14px;">WhatsApp'ta fotoğraf altına yazılan yazının (caption) karakter sınırı düşük olduğu için, önce fotoğrafı gönder, sonra tanıtım metnini ayrı bir mesaj olarak gönder — ikisi de aynı sohbete gider.</p>
     <img id="businessCardImg" src="" alt="Kartvizit" style="width:100%; border-radius:12px; border:1px solid var(--border); margin-bottom:14px;">
-    <div class="sheet-actions">
-      <button class="btn ghost" id="businessCardCloseBtn" style="width:100%;">Kapat</button>
+    <div class="sheet-actions" style="flex-direction:column;gap:8px;">
+      <button class="btn primary" id="businessCardSharePhotoBtn" style="width:100%;">1️⃣ Kartvizit Fotoğrafını Gönder</button>
+      <button class="btn primary" id="businessCardShareTextBtn" style="width:100%;">2️⃣ Tanıtım Metnini Gönder</button>
     </div>
     <div class="sheet-actions" style="margin-top:8px;">
-      <button class="btn primary" id="businessCardShareBtn" style="width:100%;">📤 Paylaş</button>
+      <button class="btn ghost" id="businessCardCloseBtn" style="width:100%;">Kapat</button>
     </div>
   </div>
 </div>
@@ -2093,15 +2094,25 @@
     const m = matchesForClient(c);
     if(!m.length) return;
     const phone = normalizePhoneForWa(c.phone);
+    const MAX_LISTED = 6; // wa.me linki URL üzerinden gittiği için çok uzun mesajlar açılmayabiliyor
+    const shown = m.slice(0, MAX_LISTED);
+    const extra = m.length - shown.length;
     const intro = m.length===1
       ? `Merhaba ${c.name}, aradığınız kritere uygun bir daire çıktı:\n\n`
       : `Merhaba ${c.name}, aradığınız kritere uygun ${m.length} daire çıktı:\n\n`;
-    const listText = m.map((item, i)=>{
+    const listText = shown.map((item, i)=>{
       const prop = item.prop;
       const floorTxt = prop.floor ? (prop.floor==='Bahçe Katı' ? 'Bahçe Katı' : prop.floor+'. Kat') : '';
-      return `${i+1}) ${prop.site}${prop.block?' - '+prop.block:''}\n${prop.loc}\n${prop.rooms}${floorTxt? ' · '+floorTxt:''} · ${priceLabel(prop)}\n${rawTagList(prop.tags).join(', ')}`;
+      const tagsShort = rawTagList(prop.tags).slice(0,3).join(', ');
+      return `${i+1}) ${prop.site}${prop.block?' - '+prop.block:''}\n${prop.loc}\n${prop.rooms}${floorTxt? ' · '+floorTxt:''} · ${priceLabel(prop)}${tagsShort? '\n'+tagsShort:''}`;
     }).join('\n\n');
-    const text = intro + listText + `\n\nFotoğrafları ayrıca gönderiyorum.`;
+    const extraNote = extra>0 ? `\n\n...ve ${extra} daire daha var, detayları uygulamadan gönderiyorum.` : '';
+    let text = intro + listText + extraNote + `\n\nFotoğrafları ayrıca gönderiyorum.`;
+    // Güvenlik payı: wa.me linkleri çok uzun URL'lerde bazı cihazlarda açılmıyor
+    const MAX_CHARS = 1400;
+    if(text.length > MAX_CHARS){
+      text = text.slice(0, MAX_CHARS-20).trim() + '\n\n...(devamı uygulamada)';
+    }
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
   }
@@ -3039,23 +3050,24 @@ Daruma Real Estate`;
     $('businessCardOverlay').classList.add('open');
   });
   $('businessCardCloseBtn').addEventListener('click', ()=> $('businessCardOverlay').classList.remove('open'));
-  $('businessCardShareBtn').addEventListener('click', async ()=>{
+
+  $('businessCardSharePhotoBtn').addEventListener('click', async ()=>{
     try{
       const res = await fetch(businessCardDataUrl());
       const blob = await res.blob();
       const file = new File([blob], 'daruma-kartvizit.jpg', {type:'image/jpeg'});
-      const shareText = BUSINESS_CARD_INTRO_TEXT;
+      const shortCaption = 'Eray Oflaz — Daruma Gayrimenkul 💼';
       if(navigator.canShare && navigator.canShare({files:[file]})){
-        await navigator.share({files:[file], title:'Eray Oflaz - Daruma Gayrimenkul', text: shareText});
+        await navigator.share({files:[file], title:'Eray Oflaz - Daruma Gayrimenkul', text: shortCaption});
       } else if(navigator.share){
-        await navigator.share({title:'Eray Oflaz - Daruma Gayrimenkul', text: shareText, url: INSTAGRAM_URL});
+        await navigator.share({title:'Eray Oflaz - Daruma Gayrimenkul', text: shortCaption, url: INSTAGRAM_URL});
       } else {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url; a.download = 'daruma-kartvizit.jpg';
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(()=> URL.revokeObjectURL(url), 5000);
-        showToast('Kartvizit indirildi. Instagram: ' + INSTAGRAM_URL, 6000);
+        showToast('Kartvizit indirildi.', 4000);
       }
     }catch(err){
       if(err.name !== 'AbortError'){
@@ -3063,6 +3075,12 @@ Daruma Real Estate`;
         showToast('Paylaşım başarısız, tekrar dener misin?');
       }
     }
+  });
+
+  $('businessCardShareTextBtn').addEventListener('click', ()=>{
+    // Metin uzun olduğu için ayrı bir mesaj olarak WhatsApp'ta aç (fotoğraf caption'ı değil, normal mesaj — karakter sınırı çok daha yüksek)
+    const url = `https://wa.me/?text=${encodeURIComponent(BUSINESS_CARD_INTRO_TEXT)}`;
+    window.open(url, '_blank');
   });
 
   loadAll();
